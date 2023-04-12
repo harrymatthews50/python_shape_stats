@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 import joblib
+from joblib_progress import joblib_progress
 from python_shape_stats.helpers import validate_landmark_configuration_and_weights
 
 
@@ -190,7 +191,7 @@ def conform_p_to_q(p : np.ndarray,q : np.ndarray,w=None,scale=True) -> tuple:
     return apply_procrustes_transform(p,t),t
 
 def do_generalized_procrustes_analysis(landmarks: np.ndarray, scale: bool = True, max_iter: int = np.inf,
-                                       init_landmarks: np.ndarray = None,n_jobs=1,verbose: int=10) -> dict:
+                                       init_landmarks: np.ndarray = None,n_jobs=1) -> dict:
     """
     Aligns a sample of landmark configurations to their mean by generalized Procrustes analysis
 
@@ -199,16 +200,15 @@ def do_generalized_procrustes_analysis(landmarks: np.ndarray, scale: bool = True
     :param max_iter: the maximum number of iterations if not specified the algorithm will continue until convergence, however long it takes
     :param init_landmarks: an n (vertices) x 3 (dimensions) array of landmark coordinates to initialise the algorithm. if unspecified
     :param n_jobs: the number of jobs to run in parallel - see joblib.Parallel documentation
-    :return: a dictionary with entries: 'landmarks' - the landmarks after alignment to the sample mean, 'mean' - the sample mean to which they are alignmed
+    :return: a tuple with two elements: 1.  the landmarks after alignment to the sample mean and 2. the sample mean to which they are aligned
     """
 
+    def assemble_output():
+        return aligned_landmarks, prev_avg
     # check size of array
     if landmarks.shape[1] != 3:
         raise ValueError('shapes should be n landmarks x 3 dimensions x k observations')
     n_configs = landmarks.shape[2]
-  #  if scale:  # scale each to unit centroid size
-  #      for x in range(n_configs):
-  #          landmarks[:, :, x] = scale_shape(landmarks[:, :, x], target_size=1.)
 
     # initialise algorithm
     if init_landmarks is not None:
@@ -219,34 +219,31 @@ def do_generalized_procrustes_analysis(landmarks: np.ndarray, scale: bool = True
         curr_avg = scale_shape(curr_avg,target_size=1.)
     iter = 0
     track_convergence = []
-    if verbose>0:
-        print('Begin generalized Procrustes analysis')
+
+    print('Begin generalized Procrustes analysis')
     while True:
-        if verbose>0:
-            print('Iteration ' + str(iter))
-        r = joblib.Parallel(n_jobs=n_jobs,verbose=verbose) (joblib.delayed(conform_p_to_q)(landmarks[:,:,x],curr_avg,scale=scale) for x in range(n_configs))
+        print('Iteration ' + str(iter))
+        with joblib_progress('Iteration ' + str(iter),n_configs):
+            r = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(conform_p_to_q)(landmarks[:,:,x],curr_avg,scale=scale) for x in range(n_configs))
         r,_=zip(*r)
         aligned_landmarks = np.stack(r,axis=2)
         prev_avg = copy.copy(curr_avg)
         curr_avg = np.mean(aligned_landmarks, axis=2)
+
         # assess convergence
-        if iter == max_iter:
-            if verbose>0:
-                print('Maximum number of iterations reached without converging')
+        if iter == (max_iter-1):
+            print('Maximum number of iterations reached without converging')
             return assemble_output()
         if iter > 0:
             diff = np.sqrt(np.mean(np.square(prev_avg-curr_avg)))
-            if verbose>0:
-                print('RMS difference ='+str(diff))
+            print('RMS difference ='+str(diff))
             track_convergence.append(diff)
         if iter > 1:
             grad = np.gradient(track_convergence)
             if np.isclose(grad[-1],0.) | (grad[-1]>0):
-                if verbose>0:
-                    print('algorithm converged')
+                print('algorithm converged')
                 return assemble_output()
         iter += 1
 
-        def assemble_output():
-            return {'landmarks': aligned_landmarks, 'mean': prev_avg}
+
 

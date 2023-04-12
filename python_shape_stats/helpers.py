@@ -1,6 +1,8 @@
 import copy
 import os
 import tkinter.filedialog
+
+import pandas as pd
 from scipy.stats import ortho_group
 import pyvista as pv
 import time
@@ -9,9 +11,10 @@ import csv
 import importlib
 from collections.abc import Callable
 from sklearn.model_selection import KFold
-from matplotlib import colormaps
 import joblib
-
+from joblib_progress import joblib_progress
+from tqdm import tqdm
+import pickle
 def get_camera_properies(cam):
     keys = [item for item in dir(cam) if item[0].islower()]
     out = dict()
@@ -21,12 +24,30 @@ def get_camera_properies(cam):
             out[key] = val
     return out
 
-def get_user_input_for_cam_view(mesh):
-    pl = make_plotter()
-    add_shape(mesh,plotter=pl)
-    pl.add_text('Click and drag to edit view and close when finished',color=[0,0,0])
+def get_user_input_for_cam_view(mesh,link_views=True):
+    if not my_is_iterable(mesh):
+        mesh = [mesh]
+    n_plots = len(mesh)
+    nearest_sq = np.ceil(np.sqrt(n_plots))
+    n_cols = int(nearest_sq)
+    n_rows = int(np.ceil(n_plots / n_cols))
+    pl = make_plotter(shape=(n_rows, n_cols))
+    for x in range(n_plots):
+        r, c = np.unravel_index(x, [n_rows, n_cols])
+        pl.subplot(r, c)
+        add_shape(mesh[x], pl)
+        pl.add_text('Click and drag to edit view and close when finished',color=[0,0,0])
+    if link_views:
+        pl.link_views()
     pl.show()
-    return get_camera_properies(pl.camera)
+    # after it is closed record the camera views
+    cam_views = []
+    for x in range(n_plots):
+        r, c = np.unravel_index(x, [n_rows, n_cols])
+        pl.subplot(r, c)
+        cam_views.append(get_camera_properies(pl.camera))
+
+    return cam_views
 
 def _generate_random_cov_matrix(sz,rank,eig_val_scale,seed=None):
     """
@@ -49,7 +70,6 @@ def _generate_random_cov_matrix(sz,rank,eig_val_scale,seed=None):
     eig_vals = eig_vals[::-1]
     cov = eig_vecs @ np.diag(eig_vals) @ eig_vecs.T
     return cov, eig_vecs, eig_vals
-
 
 def set_camera_view(cam,view : dict | Callable ):
     if isinstance(view,dict):
@@ -78,14 +98,11 @@ def broken_stick_expectation(N):
     x = 1/np.linspace(1,N,N)
     summation = lambda k0 : np.sum(x[k0:])
     return np.array([summation(i) for i in range(N)])*1/N
-
 def _trim_arrays_to_min_size(matrices,axis=0):
     shp = [item.shape[axis] for item in matrices]
     min_shp = min(shp)
     inds = [i for i in range(min_shp)]
     return [np.take(x,inds,axis=axis) for x in matrices]
-
-
 
 def _rng_kfold_split(k,seed=None):
     # to use KFold with numpy.random.Generator is not currrently supported (it is a WIP: https://github.com/scikit-learn/scikit-learn/pull/23962 )
@@ -94,9 +111,6 @@ def _rng_kfold_split(k,seed=None):
     rng = np.random.default_rng(seed)
     kf = KFold(n_splits=k, shuffle=True, random_state=rng.integers(0, 2**32-1))
     return kf
-
-
-
 
 def broken_stick_empirical(N,n_reps=100,seed=None):
     """
@@ -121,16 +135,45 @@ def broken_stick_empirical(N,n_reps=100,seed=None):
     segment_lengths = segment_lengths[:,::-1]
 
     return segment_lengths
-
+def get_dummy(x : pd.DataFrame,dtype_obj : pd.CategoricalDtype) -> pd.DataFrame:
+    """turns x into dummy variables, listening to the categories listed in dtype_obj
+    """
+    cats=dtype_obj.categories
+    if len(cats)==1:
+        raise ValueError('Only one category is specified in dtype_obj.categories')
+    dum_vars = pd.DataFrame(data=np.zeros([x.shape[0],len(cats)-1]),index=x.index)
+    for i in range(1,len(cats)):
+        dum_vars.loc[:,i-1] = (x == cats[i]).astype('float')
+    # assemble column names for the dummy_variables
+    if isinstance(x,pd.DataFrame):
+        prefix = x.columns[0]
+    elif isinstance(x, pd.Series):
+        prefix=x.name
+    col_names = [str(prefix)+'_'+str(item) for item in cats[1:]]
+    dum_vars.columns = col_names
+    return dum_vars
+def squeeze_categorical_dtypes(x):
+    dts = copy.deepcopy(x.dtypes)
+    is_cat = [str(item) == 'category' for item in x.dtypes]
+    if np.all(np.equal(is_cat,False)):
+        return dts
+    for i in range(x.shape[1]):
+        if str(x.dtypes.iloc[i])=='category':
+            # check all the categories specified in the dtype are actually there!
+            dt = x.dtypes.iloc[i]
+            new_dt = pd.CategoricalDtype(categories=[item for item in dt.categories if item in x.iloc[:, i].to_list()],
+                                ordered=dt.ordered)
+            dts.iloc[i] = new_dt
+    return dts
 
 def weighted_column_mean(x,w):
-    x = x*w
-    return np.sum(x,axis=0) / np.sum(w)
 
+    x = x*w[:,np.newaxis]
+    return np.sum(x,axis=0) / np.sum(w)
 
 def weighted_rms(x,w):
     xsq = x**2
-    xsq *= w
+    xsq *= w[:,np.newaxis]
     return np.sqrt(np.sum(xsq,axis=0) / np.sum(w))
 
 def randomize_matrix(x,seed=None):
@@ -144,57 +187,204 @@ def randomize_matrix(x,seed=None):
     return x
 
 
-
-
-def animate_vector(base_polydata,point_vectors,frame_scalars,mode='write_gif',file_name='animation.gif',fps=10,cam_view=None,off_screen=True):
+def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',file_name='animation.gif',fps=10,cam_view=None,off_screen=True,link_views=True,title=None,same_coordinate_system=True):
     def _morph_shape():
-        prompt_text.VisibilityOff()
+        [item.VisibilityOff() for item in prompt_text]
         if mode == 'write_gif':
             writing = True
             pl.open_gif(filename=file_name,fps = fps,loop=True)
-        for sc in frame_scalars:
-            pl.update_coordinates(init_vertices+point_vectors*sc,mesh=base_polydata)
+        n_frames = len(frame_scalars[0])
+        for f in tqdm (range(n_frames),desc="Animating…",
+               ascii=False, ncols=75):
+            # update all the viewers
+            for x in range(n_meshes):
+                if not same_coordinate_system:
+                    r, c = np.unravel_index(x, [n_rows, n_cols])
+                    pl.subplot(r, c)
+                pl.update_coordinates(init_vertices[x]+point_vectors[x]*frame_scalars[x][f],mesh=base_polydata[x])
+
             time.sleep(1/fps)
             if writing:
                 pl.write_frame()
         if writing:
             print('Written to '+os.path.abspath(file_name))
-        prompt_text.VisibilityOn()
+        [item.VisibilityOn() for item in prompt_text]
         pl.update()
-    # record starting values of the vertices
-    init_vertices = base_polydata.points
+
+
+    if not my_is_iterable(base_polydata):
+        base_polydata = [base_polydata]
+    if not my_is_iterable(point_vectors):
+        point_vectors = [point_vectors]
+    if not my_is_iterable(frame_scalars):
+        frame_scalars = [frame_scalars]
+    if cam_view is not None:
+        if not my_is_iterable(cam_view):
+            cam_view = [cam_view]
+
     if off_screen:
         if cam_view is None:
-            cam_view = get_user_input_for_cam_view(base_polydata)
-    # open plotter
-    pl = make_plotter(off_screen=off_screen)
-    # add shape
+            cam_view = get_user_input_for_cam_view(base_polydata,link_views=link_views)
+    ## open plotter
+    # determine how many and shape of the subplots
+    n_meshes = len(base_polydata)
+    if not same_coordinate_system:
+        n_plots = n_meshes
+    else:
+        n_plots = 1
+    if title is None:
+        title = ['']*n_plots
+    nearest_sq =np.ceil(np.sqrt(n_plots))
+    n_cols=int(nearest_sq)
+    n_rows=int(np.ceil(n_plots /n_cols))
+    if n_plots>1:
+        pl = make_plotter(off_screen=off_screen,shape=(n_rows,n_cols))
+    else:
+        pl = make_plotter(off_screen=off_screen)
+    # make deep copies of all the polydata
     base_polydata = copy.deepcopy(base_polydata)
-    add_shape(base_polydata,pl)
+    # record the inital locations of the vertices
+    init_vertices = [item.points for item in base_polydata]
+    # add each shape in a window
+    prompt_text = []
+    for x in range(n_meshes):
+        if not same_coordinate_system:
+            r,c = np.unravel_index(x,[n_rows,n_cols])
+            pl.subplot(r,c)
+        add_shape(base_polydata[x],pl)
+        prompt_text.append(pl.add_text('Press k to begin',color=[0,0,0]))
+        if cam_view is not None:
+            if not same_coordinate_system:
+                    set_camera_view(pl.camera, cam_view[x])
+            else:
+                    set_camera_view(pl.camera, cam_view[0])
     pl.add_key_event('k',_morph_shape)
-    prompt_text = pl.add_text('Press k to begin',color=[0,0,0])
-    if cam_view is not None:
-        set_camera_view(pl.camera,cam_view)
-    pl.show()
+    if link_views:
+        pl.link_views()
+    if off_screen:
+        _morph_shape()
+    else:
+        pl.show()
+
+def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=True,link_views=True,same_coordinate_system=True):
+    def _print_to_file():
+        [item.VisibilityOff() for item in prompt_text]
+
+        pl.save_graphic(filename=file_name)
+        print('Written to '+os.path.abspath(file_name))
+        [item.VisibilityOn() for item in prompt_text]
+        pl.update()
+
+    if same_coordinate_system == True:
+        if not link_cmaps:
+            Warning('Plotting multiple meshes in the same plotter (same_coordinate_system==True) '
+                    'with different colormaps and limits (link_cmaps==False) will result in a misleading figure anmd'
+                    'and is not recommended')
+
+
+    if not my_is_iterable(base_polydata):
+        base_polydata = [base_polydata]
+    if not my_is_iterable(point_scalars):
+        point_scalars = [point_scalars]
+
+    if (not my_is_iterable(cam_view)) & (cam_view is not None):
+            cam_view = [cam_view]
+    if (not my_is_iterable(cmap)) & (cmap is not None):
+        cmap =[cmap]
+    if (not my_is_iterable(clim)) & (clim is not None):
+        clim = [clim]
+    if off_screen:
+        if cam_view is None:
+            cam_view = get_user_input_for_cam_view(base_polydata,link_views=link_views)
+    n_meshes = len(point_scalars)
+
+    if not same_coordinate_system:
+        n_plots = n_meshes
+    else:
+        n_plots = 1
+
+    if n_plots>1:
+        nearest_sq = np.ceil(np.sqrt(n_plots))
+        n_cols = int(nearest_sq)
+        n_rows = int(np.ceil(n_plots / n_cols))
+        pl = make_plotter(off_screen=off_screen,shape=(n_rows,n_cols))
+    else:
+        pl = make_plotter(off_screen=off_screen)
+
+    # make deep copies of all the polydata
+    if len(base_polydata)==1:
+        base_polydata = [base_polydata[0].copy(True) for i in range(n_meshes)]
+    else:
+        base_polydata = [base_polydata[i].copy(True) for i in range(n_meshes)]
+
+    # work out the colormaps and color limits should be depending on the settings
+    if link_cmaps:
+        if clim is not None:
+            if len(clim)>1:
+                raise ValueError('Only specify one clim if you want to link colormaps across multiple plots (link_cmaps==True)')
+        else:
+            # estimate from the scalars
+             _,clim= _set_colormap(np.concatenate(point_scalars), None, None)
+             clim = [clim]
+        # expand so there is an entry for every mesh
+        clim=clim*n_meshes
+        if cmap is not None:
+            if len(cmap)>1:
+                raise ValueError('Only specify one cmap if you want to link colormaps across multiple plots (link_cmaps==True)')
+            else:
+                cmap = cmap * n_meshes
+        else:
+            cmap,_= _set_colormap(np.concatenate(point_scalars), None, None)
+            cmap = [cmap]
+            cmap = cmap * n_meshes
+    else: # estimate them separately if not specified
+        if cmap is None:
+            cmap=[_set_colormap(sc,None,None)[0] for sc in point_scalars]
+        if clim is None:
+            clim = [_set_colormap(sc,None,None)[1] for sc in point_scalars]
 
 
 
+    # check there are as many cmaps and clims as plots
+    if (len(clim) != n_meshes) | (len(cmap) != n_meshes):
+        raise ValueError('clim and cmap should have as many entries as there are meshes, or one entry if link_cmaps==True')
 
+    # add each shape in a window
+    prompt_text = []
+    for x in range(n_meshes):
+        if n_plots>1:
+            r,c = np.unravel_index(x,[n_rows,n_cols])
+            pl.subplot(r,c)
+        add_shape(base_polydata[x],pl,scalars=point_scalars[x],clim=clim[x],cmap=cmap[x])
+        #For multiple plots, a bug in pyvista makes it not listen to 'clim' argument for second plots, so need to force it to update the climits
+        #pl.update_scalar_bar_range(clim[x])
 
+        if n_plots>1:
+            add_scalar_bar(pl,title=str(x))
+        pl.update_scalar_bar_range(clim[x])
+        prompt_text.append(pl.add_text('Press k to save to file',color=[0,0,0]))
+        if cam_view is not None:
+            if not same_coordinate_system:
+                    set_camera_view(pl.camera, cam_view[x])
+            else:
+                    set_camera_view(pl.camera, cam_view[0])
+    if n_plots==1:
+        add_scalar_bar(pl)
+    pl.add_key_event('k',_print_to_file)
 
+    if link_views:
+        pl.link_views()
 
-
-
-
-
-
-
-
+    if off_screen:
+        _print_to_file()
+    else:
+        pl.show()
 
 def make_plotter(background_color =[255,255,255] ,**kwargs):
     kwkeys = kwargs.keys()
     pl = pv.Plotter(**kwargs)
     pl.background_color = background_color
+    pl.enable_parallel_projection()
     return pl
 
 def add_vectors(mesh,vectors : np.ndarray | str =None,vectors_name=None,plotter=None,color_by_length=True,clim=None,cmap=None,**kwargs):
@@ -232,7 +422,6 @@ def add_shape(mesh,plotter=None,**kwargs):
     cmap = kwargs.pop('cmap',None)
    # lighting = kwargs.pop('lighting', False)
     smooth_shading = kwargs.pop('smooth_shading',True)
-
     if plotter is None:
         plotter = make_plotter()
     if scalars is not None:
@@ -280,11 +469,7 @@ def add_scalar_bar(plotter,**kwargs):
 
     return plotter.add_scalar_bar(color=color,font_family=font_family,label_font_size=label_font_size,title_font_size=title_font_size,vertical=vertical,position_x=position_x,position_y=position_y,width=width,height=height,**kwargs)
 
-
-
-
-
-def _get_path_to_pinnochio_demo_face():
+def get_path_to_pinnochio_demo_face():
     """
     Get full path to the location of the Pinnochio demo face
 
@@ -294,8 +479,7 @@ def _get_path_to_pinnochio_demo_face():
     with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
         return os.path.join(str(r), 'data', 'pinnochio_data', 'HM_Pinnochio.obj')
 
-
-def _get_path_to_demo_face():
+def get_path_to_demo_face():
     """
     Get full path to the location of the non-Pinnochio demo face
 
@@ -305,11 +489,38 @@ def _get_path_to_demo_face():
     with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
         return os.path.join(str(r), 'data', 'pinnochio_data', 'HM.obj')
 
-
-def _get_path_to_simulated_population():
+def get_path_to_simulated_faces():
     with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
-        return os.path.join(str(r), 'data', 'sim_pop_data')
+        return os.path.join(str(r), 'data','sim_faces','faces')
 
+def get_path_to_simulated_noses():
+    with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
+        return os.path.join(str(r), 'data','sim_faces','nose')
+
+def get_path_to_simulated_foreheads():
+    with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
+        return os.path.join(str(r), 'data','sim_faces','forehead_orbits')
+def get_path_to_simulated_metadata():
+    with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
+        return os.path.join(str(r), 'data','sim_faces','SIMPOP_Metadata.xlsx')
+
+def get_path_to_pickled_shape_pca():
+    with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
+        return os.path.join(str(r), 'data', 'pickled_models', 'ShapePCA.p')
+
+def get_path_to_pickled_shape_hypthesis_test():
+    with importlib.resources.as_file(importlib.resources.files(__package__)) as r:
+        return os.path.join(str(r), 'data', 'pickled_models', 'ShapeHypothesisTest.p')
+
+
+def load_shape_hypothesis_test():
+    with open(get_path_to_pickled_shape_hypthesis_test(),'rb') as f:
+        obj = pickle.load(f)
+    return obj
+def load_shape_pca():
+    with open(get_path_to_pickled_shape_pca(), 'rb') as f:
+        obj = pickle.load(f)
+    return obj
 
 def _random_transformation(translate_sigma=[10, 10, 10], include_scaling=True, scale_sigma=2,
                            include_reflection=False) -> dict:
@@ -377,7 +588,6 @@ def landmark_3d_to_2d(a: np.ndarray) -> np.ndarray:
     k = a.shape[2]
     return np.reshape(a, [3 * n,k],order='F').T
 
-
 def landmark_2d_to_3d(a: np.ndarray) -> np.ndarray:
     """
     Converts landmark configurations from  representation as a 2d array (k (observations) x 3n (n = number of vertices)
@@ -397,7 +607,6 @@ def landmark_2d_to_3d(a: np.ndarray) -> np.ndarray:
 
     return np.squeeze(np.reshape(a.T, [int(n3 / 3), 3, k],order='F'))
 
-
 def load_shape(path: str = None, **kwargs) -> tuple:
     """
     Loads a file containing shape data
@@ -411,36 +620,23 @@ def load_shape(path: str = None, **kwargs) -> tuple:
     pd = TriPolyData(path, **kwargs)
     return pd, np.array(pd.points), np.array(pd.faces_array)
 
-
-def load_shapes_to_array(paths: iter, n_jobs: int = 1,verbose=10) -> np.ndarray:
+def load_shapes_to_array(paths: iter, n_jobs: int = 1) -> tuple:
     """
-    Loads the meshes specified in 'paths' and returns their vertices in an n (vertices) x 3 x k observations array
+    Loads the meshes specified in 'paths' and returns their vertices in an n (vertices) x 3 x k observations array, as well as a list of corresponding helpers.TriPolyData objects
     All meshes must have the same number of vertices
-
     :param paths: an iterable containing the paths to the mehses to load
     :param n_jobs: the number of jobs to run concurrently. This uses joblib.Parallel rules. i.e. a positive integer specifies the number of jobs and negative integers indicates to run j + 1 + n_jobs where j is the maximum possible (e.g. -1 indictaes to use all available cores)
-    :return:
+    :return: a tuple containing 1. the vertices in  n (vertices) x 3 x k observations array, 2. a list of helpers.TriPolyData objects
     """
-    if verbose>0:
-        print('Commencing loading shapes...')
-    r = joblib.Parallel(n_jobs=n_jobs, verbose=verbose)(joblib.delayed(load_shape)(path) for path in paths)
-    if verbose>0:
-        print('Finished loading shapes...')
-    _, vertices, _ = zip(*r)
-
-    return np.stack(vertices, axis=2)
-
-
-
-
-
-        # are scalars directed or not, will determine the defauk
-
-
-
-
-
-
+    paths = [item for item in paths]
+    with joblib_progress('Loading shapes',len(paths)):
+        r = joblib.Parallel(n_jobs=n_jobs, )(joblib.delayed(load_shape)(path) for path in paths)
+    poly, vertices, _ = zip(*r)
+    try:
+        vertices = np.stack(vertices, axis=2)
+    except:
+        Warning('Was unable to stack all shapes into a single array, please check that they all have the same number of vertices...a list of separate arrays will be returned')
+    return vertices,poly
 
 def _set_colormap(scalars,colormap,clim):
     if scalars is not None:
@@ -474,9 +670,7 @@ class TriPolyData(pv.PolyData):
         super().__init__(*args, **kwargs)
         # triangulate the mesh if not already
         if not self.is_all_triangles:
-            print('Triangulating mesh')
             self.triangulate(inplace=True)
-            print('Finished Triangulating')
 
     @property
     def faces_array(self):
@@ -521,6 +715,22 @@ class TriPolyData(pv.PolyData):
         with open(filename, 'w') as csvfile:
             writerobj = csv.writer(csvfile, delimiter=' ')
             writerobj.writerows(np.concatenate((verts, faces), axis=0))
+
+def my_is_iterable(obj):
+    """Custom check for iterability of objects, but ignriung some types"""
+    try: # if no iteration is possible return False
+        iter(obj)
+    except:
+        return False
+    # ignore some custom types
+    if isinstance(obj,(str,pv.DataSet,np.ndarray)):
+        return False
+    return True
+
+
+
+
+
 
 
 # class ShapeReaderSaver:

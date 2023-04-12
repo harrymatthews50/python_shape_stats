@@ -2,13 +2,16 @@ import copy
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import scipy.linalg
 from scipy.sparse import spdiags
 from scipy.stats import chi2
+from sklearn.cross_decomposition import PLSRegression
 from python_shape_stats import helpers, procrustes
 from sklearn.model_selection import KFold
 import joblib
 from joblib_progress import joblib_progress
-from abc import ABC,abstractmethod,abstractproperty,abstractclassmethod,abstractstaticmethod
+from abc import ABC, abstractmethod, abstractproperty, abstractclassmethod, abstractstaticmethod
 import os
 import pyvista
 
@@ -27,6 +30,7 @@ class PCA:
         self._initial_eig_val = None
         self._parallel_analysis_results = None
         self._cross_validation_results = None
+
     # @property
     # def dim_log_likelihood(self):
     #     """
@@ -113,7 +117,6 @@ class PCA:
         """
         return self._transformed_training_data
 
-
     @property
     def center_vec(self):
         """
@@ -165,9 +168,10 @@ class PCA:
         :type: np.ndarray | NoneType
         """
         if self._cross_validation_results is None:
-            UserWarning('Cross-validation needs to be run before the error can be calculated, use the \'cross validation\' of this class')
+            UserWarning(
+                'Cross-validation needs to be run before the error can be calculated, use the \'cross validation\' of this class')
             return None
-        return np.mean(np.mean(self._cross_validation_results**2,axis=0),axis=0)
+        return np.mean(np.mean(self._cross_validation_results ** 2, axis=0), axis=0)
 
     @staticmethod
     def _fit(x, center=True, center_vec=None, standardize_cols=False):
@@ -202,18 +206,18 @@ class PCA:
         out, _ = PCA._fit(shuff_x, center=False, standardize_cols=False)
         return out['_eig_val']
 
-    @staticmethod
-    def _cross_validation_one_fold(train, test, params):
-        mod = PCA()
-        mod.fit(train, **params)
-        sc = mod.transform(test)
-        # generate predictions for all possible dimensionalities
-        predictions = np.zeros([test.shape[0],test.shape[1],mod.n_dim])
-        for d in range(1,mod.n_dim):
-            for_sc = sc.copy()
-            for_sc[:, d:] = 0  # suppress PCs d: end from influencing the prediction
-            predictions[:, :, d] = mod.predict(for_sc)
-        return np.abs(test[:,:,np.newaxis] - predictions)
+    # @staticmethod
+    # def _cross_validation_one_fold(train, test, params):
+    #     mod = PCA()
+    #     mod.fit(train, **params)
+    #     sc = mod.transform(test)
+    #     # generate predictions for all possible dimensionalities
+    #     predictions = np.zeros([test.shape[0], test.shape[1], mod.n_dim])
+    #     for d in range(1, mod.n_dim):
+    #         for_sc = sc.copy()
+    #         for_sc[:, d:] = 0  # suppress PCs d: end from influencing the prediction
+    #         predictions[:, :, d] = mod.predict(for_sc)
+    #     return np.abs(test[:, :, np.newaxis] - predictions)
 
     def fit_transform(self, x: np.ndarray, center: bool = True, center_vec: np.ndarray = None,
                       standardize_cols: np.ndarray = False) -> None:
@@ -306,7 +310,8 @@ class PCA:
         return _eigen_value_plot(self._initial_eig_val, title='Scree Plot', ax=ax)
 
     def cumulative_variance_plot(self, ax=None):
-        return _eigen_value_plot(np.cumsum(self._initial_eig_val) / self._initial_var * 100,eig_vals_label='Cumulative Var. Exp.',
+        return _eigen_value_plot(np.cumsum(self._initial_eig_val) / self._initial_var * 100,
+                                 eig_vals_label='Cumulative Var. Exp.',
                                  title='Cumulative Variance', ylabel='Variance\nExplained (%)', ax=ax)
 
     def parallel_analysis_plot(self, ax=None, ci_level=95, threshold_level=97.5, n_reps=50, n_jobs=1,
@@ -314,14 +319,16 @@ class PCA:
         # determine whether the empirical null distribution needs to be recalculated
         if (self._parallel_analysis_results is None) | recompute_parallel_analysis:
             self.parallel_analysis(n_reps=n_reps, n_jobs=n_jobs, seed=seed)
-        return _eigen_value_plot(self._initial_eig_val,distr= self._parallel_analysis_results,distr_label='Null Spectra', ci_level=ci_level,
+        return _eigen_value_plot(self._initial_eig_val, distr=self._parallel_analysis_results,
+                                 distr_label='Null Spectra', ci_level=ci_level,
                                  threshold_level=threshold_level, ax=ax, title='Parallel\nAnalysis')
 
     def broken_stick_plot(self, ax=None, ci_level=95, threshold_level=97.5, n_reps=1000):
         # get the empirical broken stick distribution
         N = len(self._initial_eig_val)
         lengths = helpers.broken_stick_empirical(N, n_reps) * self._initial_var
-        return _eigen_value_plot(self._initial_eig_val, distr=lengths,distr_label='Null Spectra', ax=ax, ci_level=ci_level,
+        return _eigen_value_plot(self._initial_eig_val, distr=lengths, distr_label='Null Spectra', ax=ax,
+                                 ci_level=ci_level,
                                  threshold_level=threshold_level, title='Broken Stick')
 
     # def cross_validation_plot(self,ax = None,atol=1e8,rtol=1e5,recompute_cross_validation=False,k=10,seed=None,n_jobs=None):
@@ -560,16 +567,17 @@ class ShapePCA(PCA):
         if mode == 'write_gif':
             ext = '.gif'
             file_name = os.path.splitext(file_name)[0] + ext
-        helpers.animate_vector(self.average_polydata, vec, frame_scalars, mode=mode, file_name=file_name,
+        helpers.animate_vectors(self.average_polydata, vec, frame_scalars, mode=mode, file_name=file_name,
                                off_screen=off_screen, **kwargs)
 
 
-def _eigen_value_plot(eig_vals,eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95., threshold_level=95, ax=None, xlabel='PC',
+def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95.,
+                      threshold_level=95., ax=None, xlabel='PC',
                       ylabel='Explained\nVariance', title=''):
     if ax is None:
         ax = plt.subplot()
     x = np.linspace(1, len(eig_vals), len(eig_vals))
-    ax.plot(x, eig_vals, 'b+-',label=eig_vals_label)
+    ax.plot(x, eig_vals, 'b+-', label=eig_vals_label)
 
     if xlabel is not None:
         ax.set_xlabel(xlabel)
@@ -589,89 +597,235 @@ def _eigen_value_plot(eig_vals,eig_vals_label='Eigenvalue Spectrum', distr=None,
         ax.plot(x, pctiles[2, :], c='g', label='Threshold')
 
         # find the first time that the explained variance is less than the threshold
-        inds = np.nonzero(np.less(eig_vals, pctiles[2, :]))
-        n_comps = np.min(inds)
+        inds = np.nonzero(np.less(eig_vals, pctiles[2, :]))[0]
+        if len(inds)==0:
+            n_comps=len(eig_vals)
+        else:
+            n_comps = np.min(inds)
         ax.axvline(x=n_comps, c='k', ls=':', label='Estimated No. Comp.')
     else:
         n_comps = []
     ax.legend()
-    return ax, n_com
+    return ax, n_comps
+
+
 class PLS(ABC):
     def __init__(self):
         super().__init__()
         self._x = None
         self._y = None
-        self._standardize_x = None
-        self._standardize_y = None
-        self._center_x = None
-        self._center_y = None
+        self._standardize_x = False
+        self._standardize_y = False
+        self._center_x = True
+        self._center_y = True
         self._observation_mask = None
         self._observation_weights = None
-        self._x_mu
-        self._y_mu
-        self._x_std
-        self._y_std
+        self._x_mu = None
+        self._y_mu = None
+        self._x_std = None
+        self._y_std = None
 
     @property
-    @abstractmethod
-    def x(self):
-        return self._x
-
-    @property
-    @abstractmethod
     def y(self):
-        return self._y
+        """
+        The complete block of y variables, before exclusion mask or dummy variables are created as  a pandas
+        DataFrame. The y.setter, depending on the subclass, may take or expect an instance of
+        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the axxtribute
+        'PCA.transformed_training_data' cast into a DataFrane
+        :type: pd.DataFrame
+         """
+        return self._convert_to_data_frame(self._y)
+
+    @y.setter
+    def y(self,val):
+        if isinstance(val, pd.DataFrame):
+            val = self._validate_data_frame(val)
+        self._y = copy.deepcopy(val)
+    @property
+    def x(self):
+        """
+        The complete block of x variables, before exclusion mask or dummy variables are created as either a numpy array or a pandas
+        DataFrame. The x.setter, depending on the subclass, may take or expect an instance of
+        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the axxtribute
+        'PCA.transformed_training_data'
+
+        :type: pd.DataFrame
+        """
+        return self._convert_to_data_frame(self._x)
+
+    @x.setter
+    def x(self,val):
+        if isinstance(val,pd.DataFrame):
+            val = self._validate_data_frame(val)
+        self._x = copy.deepcopy(val)
+
+    @property
+    def __n_obs(self):
+        """hidden property keeping track of how many subjects are in the x block, before exclusion criteria are applied"""
+        return self.x.shape[0]
+
+    @property
+    def center_x(self):
+        return self._center_x
+
+    # @center_x.setter
+    # def center_x(self,val):
+    #     self._center_x = val
+    @property
+    def center_y(self):
+        return self._center_y
+
+    # @center_y.setter
+    # def center_y(self,val):
+    #     self._center_y = val
+
+    @property
+    def standardize_x(self):
+        return self._standardize_x
+
+    # @standardize_x.setter
+    # def standardize_x(self,val):
+    #     self._standardize_x = val
+
+    @property
+    def standardize_y(self):
+        return self._standardize_y
+
+    # @standardize_y.setter
+    # def standardize_y(self,val):
+    #     self._standardize_y = val
+    @property
+    def n_obs(self):
+        """
+        Number of observations after exclusion mask have been applied
+
+        :type: int
+        """
+        if self.observation_mask is None:
+            return None
+        return sum(self.observation_mask)
+
+    @property
+    def x_treated(self):
+        """
+        The block of x variables  after categorical variables are expanded to dummy variables
+        and exclusion mask has been applied.If no categorical variables are in self.x and no
+        observation mask has been applied then this is the same as self.x cast into a DataFrame
+
+        :type: pd.DataFrame
+        """
+        return self._treat_var_block(self.x, self.observation_mask, self._are_categories_possible(self._x))[0]
+
+    @property
+    def y_treated(self):
+        """
+        The block of y variables  after categorical variables are expanded to dummy variables
+        and exclusion mask has been applied. If no categorical variables are in self.y and no
+        observation mask has been applied then this is the same as self.y
+
+        :type: pd.DataFrame
+        """
+        return self._treat_var_block(self.y, self.observation_mask, self._are_categories_possible(self._y))[0]
+
+    @property
+    def _y_block_var_indices(self):
+        if self._y is None:
+            return None
+        return self._treat_var_block(self.y, self.observation_mask, self._are_categories_possible(self._y))[1]
+
+    @property
+    def _x_block_var_indices(self):
+        if self._x is None:
+            return None
+        return self._treat_var_block(self.x, self.observation_mask, self._are_categories_possible(self._x))[1]
+
+    @property
+    def _xblock_data_types(self):
+        """
+        This is potentially confusing...if there are no categorical variables in x or there is no exclusion mask set
+        then this is identical to self.x.dtypes, if there is both an observation mask set and some categorical variables
+        then the pd.CategoricalDtype objects of x.dtypes are 'squeezed' to remove reference that are not present
+        after removing the relevant observations
+
+        :type: pd.Series
+        """
+        if self._observation_mask is None:
+            return self.x.dtypes
+        else:
+            return helpers.squeeze_categorical_dtypes(self.x[self.observation_mask])
+
+    @property
+    def _yblock_data_types(self):
+        """
+        This is potentially confusing...if there are no categorical variables in x or there is no exclusion mask set
+        then this is identical to self.y.dtypes, if there is both an observation mask set and some categorical variables
+        then the pd.CategoricalDtype objects of y.dtypes are 'squeezed' to remove reference that are not present
+        after removing the relevant observations
+
+        :type: pd.Series
+        """
+        if self._observation_mask is None:
+            return self.y.dtypes
+        else:
+            return helpers.squeeze_categorical_dtypes(self.y[self._observation_mask])
 
     @property
     def _x0(self):
         if self.x is None:
             return None
-        x0 = self.x
+        x0 = self.x_treated.to_numpy(dtype=float)
         if self.center_x:
-            x0 = x0-self.x_mu
+            x0 = x0 - self.x_mu
         if self.standardize_x:
             x0 = x0 / self.x_std
-        x0 *=self.observation_weights
-        x0 = x0[self.observations_mask,:]
+        x0 *= self.observation_weights[self.observation_mask, np.newaxis]
         return x0
 
     @property
     def _y0(self):
-        y0 = self.y
-        if self.center_y:
-            y0 = y0 - self.y_mu
-        if self.standardize_y:
-            y0 = y0 / self.y_std
-        y0 *= self.observation_weights
-        y0 = y0[self.observation_mask, :]
+        y0 = np.atleast_2d(self.y_treated.to_numpy(dtype=float))
+        y0 = self._center_scale_y(y0,reverse=False)
+        y0 *= self.observation_weights[self.observation_mask, np.newaxis]
         return y0
 
     @property
     def observation_weights(self):
         if self._observation_weights is None:
-            if self.x is None:
+            if self._x is None:
                 return None
-            return np.ones(self.x.shape[0])
+            return np.ones(self.__n_obs)
         else:
             return self._observation_weights
+
+    @observation_weights.setter
+    def observation_weights(self, val):
+        self._observation_weights = val.flatten()
 
     @property
     def observation_mask(self):
         if self._observation_mask is None:
-            if self.x is None:
+            if self._x is None:
                 return None
-            return np.ones(self.x.shape[0],dtype=bool)
+            return np.ones(self.__n_obs, dtype=bool)
         else:
-            return self._observation_mask
+            # check is the same size as x
+            if self._x is not None:
+                if len(self._observation_mask) != self.__n_obs:
+                    raise ValueError('observation mask should be the same length as the number of observations')
+            return self._observation_mask.flatten()
 
-
+    @observation_mask.setter
+    def observation_mask(self, val):
+        if not isinstance(val, np.ndarray):
+            raise TypeError('observation maks should be an numpy.ndarray')
+        val = val.astype(dtype=bool)
+        self._observation_mask = val
 
     @property
     def no_y_features(self):
         if self._y0 is None:
             return None
         return self._y0.shape[1]
-
 
     @property
     def no_x_features(self):
@@ -681,29 +835,744 @@ class PLS(ABC):
 
     @property
     def x_mu(self):
-        if self._x_mu is None: # if the mean has not been otherwise explicitly set
-            return helpers.weighted_column_mean(self.x[self._observation_mask,:],self.observation_weights[self.observation_mask])
+        if self._x_mu is None:
+            # if the mean has not been otherwise explicitly set
+            if self.x_treated is None:
+                return None
+            return helpers.weighted_column_mean(self.x_treated,
+                                                self.observation_weights[self.observation_mask]).to_numpy(dtype=float)
+        else:
+            return self._x_mu
+
     @property
     def x_std(self):
-        if self.
+        if self._x_std is None:
+            if self.x is None:
+                return None
+            x0 = self.x_treated
+            w = self.observation_weights[self.observation_mask]
+            if self.center_x:
+                x0 = x0 - self.x_mu
+            return helpers.weighted_rms(x0, w).to_numpy(dtype=float)
+        else:
+            return self._x_std
+
     @property
     def y_mu(self):
+        if self._y_mu is None:
+            # if the mean has not been otherwise explicitly set
+            if self.y_treated is None:
+                return None
+            return helpers.weighted_column_mean(self.y_treated,
+                                                self.observation_weights[self.observation_mask]).to_numpy(dtype=float)
+        else:
+            return self._y_mu
 
     @property
     def y_std(self):
+        if self._y_std is None:
+            if self.y_treated is None:
+                return None
+            y0 = self.y_treated  # [self.observation_mask, :]
+            w = self.observation_weights[self.observation_mask]
+            if self.center_y:
+                y0 = y0 - self.y_mu
+            return helpers.weighted_rms(y0, w).to_numpy(dtype=float)
+        else:
 
-    def
+            return self._y_std
+
+    def _center_scale_x(self,x,reverse=False):
+       return self._center_scale(x,self.x_mu,self.x_std,scale=self.standardize_x,center=self.standardize_x,reverse=reverse)
+
+    def _center_scale_y(self, y, reverse=False):
+        return self._center_scale(y,self.y_mu,self.y_std,scale=self.standardize_y,center=self.center_y,reverse=reverse)
+    @staticmethod
+    def _center_scale(x,mu,std,scale=True,center=True,reverse=False):
+        if not reverse:
+            if center:
+                x-=mu
+            if scale:
+                x /=std
+        else:
+            if scale:
+                x*=std
+            if center:
+                x+=mu
+        return x
+
+    @staticmethod
+    def _treat_var_block(x, mask, search_for_cats):
+        if not isinstance(x,
+                          pd.DataFrame):  # it is expected that an end user will not be able to reach this error, this error indicates a bug
+            raise TypeError('Expected pandas.DataFrame')
+        x = x.iloc[mask]
+        x, indices = PLS._expand_block(x, x.dtypes, search_for_categories=search_for_cats)
+        return x, indices, helpers.squeeze_categorical_dtypes(x)
+
+    @staticmethod
+    def _are_categories_possible(in_):
+        if isinstance(in_, pd.DataFrame):
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def _convert_to_data_frame(in_):
+        if in_ is None:
+            return None
+        if isinstance(in_, pd.DataFrame):
+            return in_
+        if isinstance(in_, PCA):
+            return pd.DataFrame(data=in_.transformed_training_data)
+        if isinstance(in_, (np.ndarray, pd.Series)):
+            return pd.DataFrame(in_)
+
+    @staticmethod
+    def _expand_block(x, dtypes=None, search_for_categories=False):
+        if not isinstance(x, pd.DataFrame):
+            raise TypeError('Expected a pandas data frame')
+        # check if any categorical variables in dtypes
+        is_cat = [str(item) == 'category' for item in dtypes]
+        if np.all(np.equal(is_cat, False)) | (not search_for_categories):  # no expansion to be done
+            return x, [i for i in range(x.shape[1])]
+        x_chunks = []
+        block_indices = []
+        for col in range(x.shape[1]):
+            if str(x.dtypes.iloc[col]) == 'category':
+                dum = helpers.get_dummy(x.iloc[:, col], x.dtypes.iloc[col])
+                x_chunks.append(dum)
+                block_indices.extend([col] * dum.shape[1])
+            else:
+                x_chunks.append(x.iloc[:, col])
+                block_indices.extend([col])
+        x = pd.concat(x_chunks, axis=1)
+        return x, block_indices
+
+    @staticmethod
+    def _validate_data_frame(val):
+        # check all columns are unique
+        if len(np.unique(val.columns)) != len(val.columns):
+            raise ValueError('All columns of the data frame should have unique headers')
+        out = copy.deepcopy(val)
+        out.columns = [str(item) for item in val.columns]
+        return out
 
     @abstractmethod
     def fit(self):
         ...
 
 
+class PLS_2B(PLS):
+    """
+    Performs a symmetrical 2-block PLS via singular value decomposition of x.T @ Y
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._x_projection_matrix = None
+        self._y_projection_matrix = None
+        self._cov_explained = None
+        self._x_scores = None
+        self._y_scores = None
+        self._permutation_null_distribution = None
+        self._inner_relation_coefs = None
+
+    @property
+    def x_projection_matrix(self):
+        return self._x_projection_matrix
+
+    @property
+    def y_projection_matrix(self):
+        return self._y_projection_matrix
+
+    @property
+    def cov_explained(self):
+        return self._cov_explained
+
+    @property
+    def x_scores(self):
+        return self._x_scores
+
+    @property
+    def y_scores(self):
+        return self._y_scores
+
+    @property
+    def n_dim(self):
+        if self.cov_explained is None:
+            return None
+        else:
+            len(self.cov_explained)
+
+    @property
+    def inner_relation_coefs(self):
+        return self._inner_relation_coefs
+
+    @property
+    def perm_test_p_values(self):
+        if self._permutation_null_distribution is None:
+            return None
+        return np.sum((self._permutation_null_distribution - self.cov_explained[np.newaxis,:])>=0,axis=0) / self._permutation_null_distribution.shape[0]
+
+    def transform_x(self, x, expand_categories=True):
+        """
+        :param x:
+        :param expand categories:
+        :return: np.ndarray
+        """
+        if expand_categories:
+            if not isinstance(x, pd.DataFrame):
+                raise TypeError('when \'expand_categories\'==True x is expected to be a pandas data frame')
+                # convert categorical data to dummy coded data if present
+                x = self._expand_block(x, dtypes=self._xblock_data_types)
+
+        if isinstance(x, (pd.DataFrame, pd.Series)):
+            x = x.to_numpy(dtype=float)
+
+        if self.center_x:
+            x -= self.x_mu
+        if self.standardize_x:
+            x /= self.x_std
+
+        return x @ self.x_projection_matrix
+
+    def transform_y(self, y, expand_categories=True):
+        if expand_categories:
+            if not isinstance(y, pd.DataFrame):
+                raise TypeError('when \'expand_categories\'==True x is expected to be a pandas data frame')
+                # convert categorical data to dummy coded data if present
+                y = self._expand_block(y, dtypes=self._yblock_data_types)
+        if isinstance(y, (pd.DataFrame, pd.Series)):
+            y = y.to_numpy(dtype=float)
+        if self.center_y:
+            y -= self.y_mu
+        if self.standardize_y:
+            y /= self.y_std
+        return y @ self.y_projection_matrix
 
 
 
-class ShapePLSRegression():
-    pass
+    def fit(self, x, y, center_x=True, center_y=True, standardize_x=False, standardize_y=False,
+            observation_weights=None, observation_mask=None):
+        self._center_x = center_x
+        self._center_y = center_y
+        self._standardize_x = standardize_x
+        self._standardize_y = standardize_y
+        self._observation_mask = observation_mask
+        self._observation_weights = observation_weights
+        self.x = x
+        self.y = y
+        # do the svd
+        cov = self._x0.T @ self._y0
+        rank_upper_bound = min(self.x.shape[0], self.x.shape[1], self.y.shape[1])
+        [self._x_projection_matrix, self._y_projection_matrix, self._cov_explained] = self._do_svd(cov,
+                                                                                                   self.observation_weights,
+                                                                                                   rank_upper_bound)
+        self._x_scores = self.transform_x(self.x_treated, expand_categories=False)
+        self._y_scores = self.transform_y(self.y_treated, expand_categories=False)
+        self._inner_relation_coefs = self.fit_inner_relation(self.x_scores, self.y_scores,
+                                                             self.observation_weights[self.observation_mask])
+
+    @staticmethod
+    def _do_svd(cov, w, n_comps):
+        [u, s, v] = np.linalg.svd(cov)
+        u = u[:, :n_comps]
+        v = v[:n_comps]
+        s = s[:n_comps]
+        return u, v.T, (s ** 2) / sum(w)
+
+    @staticmethod
+    def fit_inner_relation(x_scores, y_scores, weights):
+        """
+        Model the relationship between each pair of latent variables self.xscores[:,i] self.y_scores[:,i]
+        as a symmetrical (major axis) regression
+
+        :return: coefs
+        """
+        n_obs, n_dims = x_scores.shape
+        coefs = np.zeros(n_dims)
+        for i in range(n_dims):
+            xy = np.concatenate([np.atleast_2d(x_scores[:, i]), np.atleast_2d(y_scores[:, i])], axis=0)
+            cov = np.cov(xy, aweights=weights, rowvar=True)
+            w, v = np.linalg.eigh(cov)
+            vec = v[:, -1]
+            coefs[i] = vec[1] / vec[0]
+        return coefs
+
+    def reconstruct_y_from_scores(self, y_scores):
+        y0 = y_scores @ self._y_projection_matrix
+        y = self._center_scale_y(y0,reverse=True)
+        return y
+
+    def reconstruct_x_from_scores(self, x_scores):
+        x0 = x_scores @ self._x_projection_matrix
+        x = self._center_scale_x(x0,reverse=True)
+        return x
+
+    def predict_y_scores_from_x(self, x_scores):
+        return x_scores * self.inner_relation_coefs[np.newaxis, :]
+
+    def predict_x_scores_from_y(self, y_scores):
+        return y_scores * 1 / self.inner_relation_coefs[np.newaxis, :]
+
+    @staticmethod
+    def _perm_test_one_iter(x0, y0, weights, n_comps, seed):
+        rng = np.random.default_rng(seed)
+        n_obs = x0.shape[0]
+        # permute rows of x
+        x0 = x0.copy()
+        x0 = x0[rng.permutation(n_obs), :]
+        cov = x0.T @ y0
+        _, _, s = PLS_2B._do_svd(cov, weights, n_comps)
+        return s
+
+    def compute_null_distribution(self, n_reps=1000, n_jobs=1, seed=None):
+        rng = np.random.default_rng(seed)
+        ss = rng.bit_generator._seed_seq
+        child_states = ss.spawn(n_reps)
+        with joblib_progress('Running permutation test...', n_reps):
+            args = joblib.Parallel(n_jobs=n_jobs, verbose=0)(
+                joblib.delayed(self._perm_test_one_iter)(self._x0, self._y0,
+                                                         self.observation_weights[self.observation_mask], self.n_dim,
+                                                         child_states[x])
+                for x in range(n_reps))
+        self._permutation_null_distribution = np.vstack(args)
+
+    def permutation_test_plot(self, p_crit=.05, ax=None, recompute_null_distribution=False, n_reps=1000, seed=None,
+                              n_jobs=1):
+        CIpct = (1 - p_crit) * 100
+
+        if (self._permutation_null_distribution is None) | recompute_null_distribution:
+            self.compute_null_distributions(n_reps=n_reps, seed=seed, n_jobs=n_jobs)
+
+        _eigen_value_plot(self.cov_explained, eig_vals_label='Covariance Explained',
+                          distr=self._permutation_null_distribution, distr_label='Null', ci_level=CIpct,
+                          threshold_level=CIpct, ax=ax, xlabel='PLS Dim',
+                          ylabel='Explained\nCovariance', title='')
+
+class ShapePLS_2B(PLS_2B):
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def _is_x_shape(self):
+        return isinstance(self._x,ShapePCA)
+    @property
+    def _is_y_shape(self):
+        return isinstance(self._y,ShapePCA)
+
+
+    def _get_base_polydata(self):
+        bp = []
+        if self._is_x_shape:
+            bp.append(copy.deepcopy(self._x.average_polydata))
+        if self._is_y_shape:
+            bp.append(copy.deepcopy(self._y.average_polydata))
+        return bp
+
+    def _get_latent_vectors(self,dim):
+        vectors = []
+        if self._is_x_shape:
+            vectors.append(helpers.landmark_2d_to_3d(self._x.eig_vec.T @ self.x_projection_matrix[:,dim]))
+        if self._is_y_shape:
+            vectors.append(helpers.landmark_2d_to_3d(self._y.eig_vec.T @ self.y_projection_matrix[:,dim]))
+        return vectors
+
+    def _get_frame_scalars(self,dim,max_sd=3,n_frames=20):
+        sc_x = helpers._generate_circular_sequence(-max_sd, max_sd, 0, n_in_sequence=n_frames) * np.std(
+            self.x_scores[:, dim])
+        sc_y = self.predict_y_scores_from_x(sc_x)
+        frame_scalars = [sc_x,sc_y]
+        is_shape = [self._is_x_shape,self._is_y_shape]
+        return [frame_scalars[i] for i in range(2) if is_shape[i]]
+
+    def _get_point_scalars(self,dim,direction):
+        pd = self._get_base_polydata()
+        latent_vectors = self._get_latent_vectors(dim)
+        if direction.lower() == 'normal':
+            normals = [item.point_normals for item in pd]
+            scalars = [np.sum(normals[i]*latent_vectors[i],axis=1) for i in range(len(pd))]
+        elif direction.lower() == 'total':
+            scalars = [np.linalg.norm(latent_vectors[i], axis=1) for i in range(len(pd))]
+        return scalars
+    # some methods specific for visualising paired latent dimensiona
+    def animate_latent_dim(self,dim,max_sd=3,n_frames=20,same_coordinate_system=False,**kwargs):
+        mode = kwargs.pop('mode', 'write_gif')
+        file_name = kwargs.pop('file_name', 'PLS_Dim' + str(dim)+'.gif')
+        off_screen = kwargs.pop('off_screen', False)
+
+        # collect the average polydatas
+        base_polydata = self._get_base_polydata()
+        vectors = self._get_latent_vectors(dim)
+        frame_scalars = self._get_frame_scalars(dim,max_sd=max_sd,n_frames=n_frames)
+
+        helpers.animate_vectors(base_polydata=base_polydata,point_vectors=vectors,frame_scalars=frame_scalars,mode=mode,file_name=file_name,off_screen=off_screen,same_coordinate_system=same_coordinate_system,**kwargs)
+
+    def colormap_latent_dim(self,dim,file_name=None,same_coordinate_system=False,direction='normal',off_screen=False,clim=None,cmap=None,link_views=False):
+        pd = self._get_base_polydata()
+        scalars = self._get_point_scalars(dim,direction)
+        if file_name is None:
+            file_name = 'PLS_Dim' + str(dim) + '.pdf'
+        helpers.plot_colormaps(pd,scalars,file_name=file_name,link_cmaps=True,same_coordinate_system=same_coordinate_system,off_screen=off_screen,clim=clim,cmap=cmap,link_views=link_views)
+
+
+#
+# def compute_cross_cov(x0,y0,method='cov',**kwargs):
+#     """
+#     Implements different cross covariance matrices of x and y
+#     Ref: Mitteroecker et al. (2016). Multivariate Analysis of Genotype–Phenotype Association
+#     :param x0:
+#     :param y0:
+#     :param method: can be 'pls' the generic cross covariance matrix (X'Y) used in pls algorithms or any of three alternatives
+#     decribed in Mitterocker et al. used in Genotype/Phenotype studies. These assume that the number
+#     :param: kwargs will go to scipy.linalg.pinvh
+#     :return: the requested matrix
+#     """
+#     raise_neg_frac_power = lambda x, pow : scipy.linalg.pinv(x)
+#     if method == 'covariance':
+#         return x0.T @ y0
+#     elif method == 'genetic effect':
+#         return scipy.linalg.pinvh(x0.T @ x0) @ x0.T @ y0
+#     elif method == 'genetic variance':
+#         return scipy.linalg.fractional_matrix_power(scipy.linalg.pinvh(x0.T @ x0), 0.5) @ x0.T @ y0
+#
+
+
+
+
+
+
+
+class PLSHypothesisTest(PLS):
+    def __init__(self):
+        super().__init__()
+        self._n_comp = None
+        self._coefs = None
+        self._method = None
+        self._var_r_squared = None
+        self._null_r_squared = None
+
+    @property
+    def coefs(self):
+        return self._coefs
+
+    @property
+    def method(self):
+        return self._method
+
+
+    @property
+    def model_stats(self):
+        return self._assemble_model_stats()
+
+
+
+    def fit(self, x, y, method='simpls',n_comp = None,center_x=True, center_y=True, standardize_x=False, standardize_y=False,observation_mask=None,
+            observation_weights = None):
+        self._center_x = center_x
+        self._center_y = center_y
+        self._standardize_x = standardize_x
+        self._standardize_y = standardize_y
+        self._observation_mask = observation_mask
+        self._observation_weights = observation_weights
+        self.x = x
+        self.y = y
+        self._method = method
+        self._n_comp = n_comp
+        self._coefs = self._fit(self._x0,self._y0,n_comp,method=self.method)
+        self._var_r_squared = self._get_var_r_squared()
+
+
+
+    def run_permutation_test(self,vars_to_test = None,test_full_model = True,seed=None,n_reps=1000,n_jobs=True):
+        perm_models = self._fit_permuted_models(vars_to_test=vars_to_test,test_full_model=test_full_model,seed=seed,n_reps=n_reps,n_jobs=n_jobs)
+        self._null_r_squared = self._unpack_null_distributions(perm_models)
+
+
+    def _unpack_null_distributions(self,perm_models):
+        out = dict()
+        for key in perm_models.keys():
+            out[key] = self._get_rsquared(perm_models[key][0],perm_models[key][1])
+        return out
+
+    def _fit_permuted_models(self,vars_to_test = None,test_full_model = True,seed=None,n_reps=1000,n_jobs=True):
+        def _run_parallel(x0,y0):
+            ss = rng.bit_generator._seed_seq
+            child_states = ss.spawn(n_reps)
+            with joblib_progress('Running permutation test...', n_reps):
+                res = joblib.Parallel(n_jobs=n_jobs, verbose=0)(
+                    joblib.delayed(self._perm_test_one_iter)(x0,y0,n_comp=None,method=self.method,
+                                                             seed=child_states[x]) for x in range(n_reps))
+            _,res = zip(*res)
+            return res
+
+        rng = np.random.default_rng(seed)
+        # which variables will be tested
+        if vars_to_test is None:
+            vars_to_test = [i for i in range(self.x.shape[1])]
+        else:
+            if not helpers.my_is_iterable(vars_to_test):
+                vars_to_test = [vars_to_test]
+        vars_to_test = [self._find_var_in_x(item,search_in_x_treated=False) for item in vars_to_test]
+        # for each variable get the results
+        results = dict()
+        for var in vars_to_test:
+            x0,y0 = self._get_reduced_xy(var)
+            results[self.x.columns[var]] = (_run_parallel(x0,y0),y0)
+        if test_full_model:
+            results['Full Model'] = (_run_parallel(self._x0,self._y0),self._y0)
+        return results
+
+    def _get_rsquared(self,res,y0):
+        if not helpers.my_is_iterable(res):
+            res = [res]
+        tot_var = np.sum(y0.flatten()**2)
+        res_var = np.array([np.sum(item.flatten()**2) for item in res])
+        return (1 - res_var / tot_var,)
+
+    def _get_var_r_squared(self):
+        out = dict()
+        for var in self.x.columns:
+            x0,y0 = self._get_reduced_xy(self._find_var_in_x(var,False))
+            _,res = self._fit_residualize(x0, y0, n_comp=None, method=self.method)
+            out[var] = self._get_rsquared(res,y0)
+        return out
+
+    @staticmethod
+    def _perm_test_one_iter(x0,y0,n_comp,method,seed = None):
+        rng = np.random.default_rng(seed)
+        # permute rows of x0
+        shuff_x = copy.copy(x0)
+        shuff_x = shuff_x[rng.permutation(x0.shape[0]), :]
+        return PLSHypothesisTest._fit_residualize(shuff_x, y0, n_comp=n_comp, method=method)
+
+    def _get_reduced_xy(self,var):
+        var_cols = [item==var for item in self._x_block_var_indices]
+        co_var_cols = [item!=var for item in self._x_block_var_indices]
+        var = self._x0[:, var_cols]
+        co_var = self._x0[:, co_var_cols]
+        if sum(co_var_cols) == 0:
+            return copy.copy(self._x0),copy.copy(self._y0)
+        _,x0 = self._fit_residualize(co_var, var, method=self.method)
+        _,y0 = self._fit_residualize(co_var,self._y0,method = self.method)
+        return x0, y0
+
+    def _assemble_model_stats(self):
+        if self._var_r_squared is None:
+            return None
+
+        out = pd.DataFrame(data=np.ones([len(self._var_r_squared),2])*np.nan,index=self._var_r_squared.keys(),columns=['R_2','p'])
+        for key in self._var_r_squared.keys():
+            R2=self._var_r_squared[key][0]
+            out.loc[key,'R_2'] = R2
+            if self._null_r_squared is not None:
+                if key in self._null_r_squared.keys():
+                    null_r2 = self._null_r_squared[key][0]
+                    p = sum(null_r2>R2) / len(null_r2)
+                    out.loc[key,'p'] = p
+        return out
+        # get variable
+
+
+
+    @staticmethod
+    def _fit(x0,y0,n_comp=None,method='simpls'):
+        if n_comp is None:
+            n_comp = min(x0.shape)
+        if method == 'simpls':
+            return simpls(x0, y0, n_comp)
+        if method == 'pls':
+            PLSMod = PLSRegression(n_components=n_comp,scale=False)
+            PLSMod.fit(x0,y0)
+            return PLSMod.coef_
+        return simpls(x0,y0,n_comp)
+    @staticmethod
+    def _fit_residualize(x0,y0,n_comp = None,method = 'simpls'):
+        coefs = PLSHypothesisTest._fit(x0,y0,n_comp=n_comp,method = method)
+        res = y0 - PLSHypothesisTest._predict(coefs,x0)
+        return coefs, res
+
+    @staticmethod
+    def _predict(coefs,x0):
+        return x0 @ coefs
+    def _get_regression_vectors(self, x_vars,reverse=False):
+        if not helpers.my_is_iterable(x_vars):
+            x_vars = [x_vars]
+        return [self._get_regression_vector(item,reverse=reverse) for item in x_vars]
+    def _get_regression_vector(self,x_var,reverse=False):
+        row = self._find_var_in_x(x_var)
+        vec = self.coefs[row,:]
+        if reverse:
+            vec = vec*-1
+        return vec
+
+
+    def _find_var_in_x(self,x_var,search_in_x_treated=True):
+        if search_in_x_treated:
+            x = self.x_treated
+        else:
+            x = self.x
+        # if integer assume it is a numeric index to  row of coefs
+        if isinstance(x_var, int):
+                if x_var > (x.shape[1]-1):
+                    raise ValueError('x_var appears to be an integer index, but is greater than the variables in x')
+                row = x_var
+        else:  # try to see if you can find it
+            is_match = np.nonzero([item == x_var for item in x.columns])[0]
+            if len(is_match) == 0:
+                raise ValueError('No match for x_var (' + str(x_var) + ') found values' + str(
+                    [item for item in x.columns]))
+            if len(is_match) > 1:
+                raise ValueError(
+                    'Multiple matches for x_var (' + str(x_var) + ') found values' + str(
+                        [item for item in x.columns]))
+            row = is_match[0]
+        return row
+    @staticmethod
+    def _get_residuals(coefs,x0,y0):
+        return y0 - PLSHypothesisTest._predict(coefs,x0)
+
+class ShapePLSHypothesisTest(PLSHypothesisTest):
+    def __init__(self):
+        super().__init__()
+    @property
+    def y(self):
+        return super().y
+    @y.setter
+    def y(self,val):
+        if not isinstance(val,ShapePCA):
+            raise ValueError('y is expected to be an instance of the ShapePCA class')
+        super(__class__, self.__class__).y.__set__(self, val)
+
+
+
+    def _get_rsquared(self,res,y0):
+        ef_rsq = super()._get_rsquared(res,y0)
+        # compute r squared per point
+        if not helpers.my_is_iterable(res):
+            res = [res]
+
+        # rotate back to the space of landmarks and reshape
+        res = [helpers.landmark_2d_to_3d(item @ self._y.eig_vec) for item in res]
+        y0 = np.atleast_3d(helpers.landmark_2d_to_3d(y0 @ self._y.eig_vec))
+        ss_per_point = lambda x : np.sum(np.sum(x**2,axis=1),axis=1)
+
+        tot_var = ss_per_point(y0)
+        res_var = np.array([ss_per_point(item) for item in res])
+
+
+    def _get_regression_vector(self, x_var,reverse=False):
+        vec = super()._get_regression_vector(x_var,reverse=reverse)
+        return helpers.landmark_2d_to_3d(vec @ self._y.eig_vec)
+    def _get_point_scalars(self,direction,x_vars,reverse=False):
+        if not helpers.my_is_iterable(x_vars):
+            x_vars = [x_vars]
+        vecs = self._get_regression_vectors(x_vars,reverse=reverse)
+        if direction.lower() == 'normal':
+            normals = self._y.average_polydata.point_normals
+            sc = [np.sum(v*normals,axis=1) for v in vecs]
+        elif direction.lower() == 'total':
+            sc = [np.linalg.norm(v,axis=1) for v in vecs]
+        else:
+            raise ValueError('Direction should be \'normal\' or \'total\'')
+        return sc
+    def plot_colormap(self,x_vars, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
+        pd = self._y.average_polydata
+        point_scalars = self._get_point_scalars(x_vars=x_vars,direction=direction)
+        if file_name is None:
+            file_name = 'regression_'+str(x_vars).replace('[','').replace(',','_')
+        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,clim=clim,off_screen=off_screen,cmap=cmap,link_views=link_views,link_cmaps=link_cmap,same_coordinate_system=False)
+
+
+
+
+
+
+
+
+
+
+
+
+def simpls(x0, y0, n_comp):
+    # this is a straightforward port of the simpls algorithm implemented in MATLABs plsregress
+
+    n, dx = x0.shape
+    dy = y0.shape[1]
+
+    x_loadings = np.zeros([dx, n_comp])
+    y_loadings = np.zeros([dy, n_comp])
+
+    x_scores = np.zeros([n, n_comp])
+    y_scores = np.zeros([n, n_comp])
+
+    weights = np.zeros([dx, n_comp])
+    r = np.zeros([dx, n_comp])  # not part of the algorithm, will collect ri vectors for my own interest
+    v = np.zeros([dx, n_comp])
+
+    cov = x0.T @ y0
+    for i in range(n_comp):
+        u, s, vt = np.linalg.svd(cov, full_matrices=0)
+       # try:
+        ri = u[:, 0]
+   #     except IndexError:
+     #       k = aa
+        ci = vt[0, :]
+        si = s[0]
+
+        r[:, i] = ri
+
+        ti = np.dot(x0, ri)  # projection onto ri
+        normti = np.linalg.norm(ti)
+        ti = ti / normti
+        x_loadings[:, i] = np.dot(np.transpose(x0), ti)
+
+        qi = si * ci / normti
+        y_loadings[:, i] = qi
+
+        x_scores[:, i] = ti
+        y_scores[:, i] = np.dot(y0, qi)
+
+        weights[:, i] = ri / normti
+
+        # update orthonormal basis with modified Gramm-Schmidt
+        vi = x_loadings[:, i]
+        for repeat in range(2):
+            for j in range(i):
+                vj = v[:, j]
+                vi = vi - np.dot(vj, vi) * vj
+
+        vi = vi / np.linalg.norm(vi)
+        v[:, i] = vi
+
+
+        # deflate cov with respect to current vector
+        cov = cov - np.outer(vi, np.dot(vi, cov))
+
+        # deflate cov again with respect to all previous vectors to ensure complete deflation
+        vi = v[:, 0:(i + 1)]
+        if i == 0:  # Vi will be a single column, numpy will only do this using np.outer
+            cov = cov - np.outer(vi, np.dot(np.transpose(vi), cov))
+        else:
+            cov = cov - np.dot(vi, np.dot(np.transpose(vi), cov))
+
+    # Orthogonalise Y-scores
+    for i in range(n_comp):
+        ui = y_scores[:, i]
+        for repeat in range(2):
+            for j in range(i):
+                tj = x_scores[:, j]
+                ui = ui - np.dot(tj, ui) * tj
+
+        y_scores[:, i] = ui
+
+
+    coefs = np.atleast_2d(np.dot(weights,np.transpose(y_loadings)))
+    return coefs
+
+def pls_svd(cross_cov):
+    [u, s, v] = np.linalg.svd(cross_cov, full_matrices=False)
 
 
 # print(__name__)
