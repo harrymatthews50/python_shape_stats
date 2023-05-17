@@ -1,5 +1,0 @@
-
-Some example text
-_____
-
-
