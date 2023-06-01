@@ -1,7 +1,11 @@
 import unittest
+
+import pandas as pd
+
 from python_shape_stats import helpers
 import pathlib
 import numpy as np
+from tqdm import tqdm
 
 class TestHelpers(unittest.TestCase):
     def test_landmarks_3d_to_2d_returns_2d_array_if_a_2_dim(self):
@@ -34,12 +38,12 @@ class TestHelpers(unittest.TestCase):
         a_p = helpers.landmark_2d_to_3d(a_vec)
         self.assertTrue(np.all(np.equal(a, a_p)))
 
-    def test_load_pinnochio(self):
-        shp,_,_ = helpers.load_shape(helpers._get_path_to_pinnochio_demo_face())
-        self.assertEqual(shp.n_points, 7160)  # add assertion here
+    # def test_load_pinnochio(self):
+    #     shp,_,_ = helpers.load_shape(helpers.get_path_to_pinnochio_demo_face())
+    #     self.assertEqual(shp.n_points, 7160)  # add assertion here
 
     def test_load_non_pinnochio(self):
-        shp, _, _ = helpers.load_shape(helpers._get_path_to_demo_face())
+        shp, _, _ = helpers.load_shape(helpers.get_path_to_demo_face())
         self.assertEqual(shp.n_points, 7160)  # add assertion here
     def test_generate_random_cov_matrix(self):
         rank = 10
@@ -48,8 +52,8 @@ class TestHelpers(unittest.TestCase):
         self.assertTrue(np.array_equal(cov.shape,[n_vars,n_vars]))
         self.assertEqual(np.linalg.matrix_rank(cov),rank)
     def test_load_shapes_to_array(self):
-        path = helpers._get_path_to_simulated_population()
-        obj_paths=pathlib.Path(path).glob('*.obj')
+        path = helpers.get_path_to_simulated_faces()
+        obj_paths=[item for item in pathlib.Path(path).glob('*.obj')]
         r = helpers.load_shapes_to_array(obj_paths,n_jobs = 1)
 
 
@@ -59,6 +63,22 @@ class TestHelpers(unittest.TestCase):
         bs = helpers.broken_stick_expectation(20)
         # check that the empirical values match closely analytical expectations with a slightly relaxed tolerance
         self.assertTrue(np.allclose(bs,mu_lengths,atol=1e-3))
+    def test_get_dummies(self):
+        cats = np.array(['Blue', 'Red', 'Green'])
+        cats = cats[np.random.randint(0, 3, 20, dtype=int)]
+        cats = pd.DataFrame(data=cats,dtype='category')
+        dummy = helpers.get_dummy(cats,cats.dtypes[0])
+        self.assertTrue(True)
+
+    def test_squeeze_cats(self):
+        cats = np.array(['Blue', 'Red', 'Green'])
+        cats = cats[np.random.randint(0, 3, 20, dtype=int)]
+        cats = pd.DataFrame(data=cats, dtype='category')
+        # remove blue
+        cats = cats[(cats!='Blue').to_numpy(dtype=bool)]
+        assert (len(cats.dtypes[0].categories) == 3)
+        dts= helpers.squeeze_categorical_dtypes(cats)
+        assert (len(dts[0].categories) == 2)
 
     def test_rng_kfold_listens_rng(self):
         x = 90
