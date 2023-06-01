@@ -191,6 +191,8 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     def _morph_shape():
         [item.VisibilityOff() for item in prompt_text]
         if mode == 'write_gif':
+           # ext = '.gif'
+           # file_name = os.path.splitext(file_name)[0] + ext
             writing = True
             pl.open_gif(filename=file_name,fps = fps,loop=True)
         n_frames = len(frame_scalars[0])
@@ -221,6 +223,9 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     if cam_view is not None:
         if not my_is_iterable(cam_view):
             cam_view = [cam_view]
+    if mode == 'write_gif':
+        ext = '.gif'
+        file_name = os.path.splitext(file_name)[0] + ext
 
     if off_screen:
         if cam_view is None:
@@ -258,9 +263,13 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
                     set_camera_view(pl.camera, cam_view[x])
             else:
                     set_camera_view(pl.camera, cam_view[0])
-    pl.add_key_event('k',_morph_shape)
+
+        pl.add_key_event('k',_morph_shape)
+
+
     if link_views:
         pl.link_views()
+
     if off_screen:
         _morph_shape()
     else:

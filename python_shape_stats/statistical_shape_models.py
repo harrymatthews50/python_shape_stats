@@ -13,10 +13,15 @@ import joblib
 from joblib_progress import joblib_progress
 from abc import ABC, abstractmethod, abstractproperty, abstractclassmethod, abstractstaticmethod
 import os
+from tqdm import tqdm
 import pyvista
 
 
 class PCA:
+    """
+    Implements a principal components analysis of a data matrix with several
+    methods for determining the number of principal components
+    """
     def __init__(self):
         self._eig_vec = None
         self._eig_val = None
@@ -31,31 +36,11 @@ class PCA:
         self._parallel_analysis_results = None
         self._cross_validation_results = None
 
-    # @property
-    # def dim_log_likelihood(self):
-    #     """
-    #     The log likelihood of the data given models of differing dimensionalities. Borrows from the implementation of PCA in scikit learn,
-    #     which in turn implements the method of `this paper <https://tminka.github.io/papers/pca/minka-pca.pdf>.
-    #     This is intended as a method for determining the number of principal components to retain.
-    #
-    #     Note: the i_{th} element of the output array corresponds to the log likelihood of the data give a model with i-1 dimensions
-    #           for example the first element of the output array will always be -inf as it corresponds to model with zero dimensions.
-    #           The optimal number of dimensions under this criteria is given by np.argmax(self.dim_log_likelihood)
-    #
-    #     :type: np.ndarray | NoneType
-    #     """
-    #     if self._initial_eig_val is None:
-    #         return None
-    #     out = np.zeros_like(self.eig_val)
-    #     out[0] = -np.inf
-    #     for x in range(1,len(self._initial_eig_val)):
-    #         out[x]=decomposition._pca._assess_dimension(self._initial_eig_val,x,self._n_samples)
-    #     return out
 
     @property
-    def eig_vec(self) -> np.ndarray | None:
+    def eig_vec(self):
         """
-        The right singular vectors of the data matrix (the PCs). The first dimension corresponds to PCs, the second to features.
+        The right singular vectors (the PCs) of the data matrix . The first dimension corresponds to PCs, the second to features.
 
         :type: np.ndarray | NoneType
         """
@@ -65,8 +50,9 @@ class PCA:
     def eig_val(self):
         """
         The total variance explained by each PC. This is computed from the singular values of the training data matrix
-        :math:`\\frac{s^2}{k}` where :math:`s` is the singular values and :math:`k` is the number of observations (rows in the training data matrix). If x is column-mean centered in the call to 'fit' This is equal to the sample variance in each dimension of the transformed data.
 
+        :math:`\\frac{s^2}{k}` where :math:`s` is the singular values and
+        :math:`k` is the number of observations (rows in the training data matrix). If x is column-mean centered in the call to 'fit' This is equal to the sample variance in each dimension of the transformed data.
         :type: np.ndarray | NoneType
         """
 
@@ -112,6 +98,7 @@ class PCA:
     def transformed_training_data(self):
         """
         Coordinates of the training data in the space spanned by the PCs. Rows correspond to observations, columns to PCs
+        These are alternatively called 'PC scores'
 
         :type: np.ndarray | NoneType
         """
@@ -156,22 +143,6 @@ class PCA:
         """
         return self._params
 
-    @property
-    def cv_error_per_dim(self):
-        """
-        The mean squared error of cross-validation per model dimension
-        The ith entry corresponds the error from a model with i-1 dimensions.
-        For example the first entry contains the error of a model with zero dimensions (i.e. the mean only)
-        -------
-        :note: run self.cross_validation before trying to access this property
-
-        :type: np.ndarray | NoneType
-        """
-        if self._cross_validation_results is None:
-            UserWarning(
-                'Cross-validation needs to be run before the error can be calculated, use the \'cross validation\' of this class')
-            return None
-        return np.mean(np.mean(self._cross_validation_results ** 2, axis=0), axis=0)
 
     @staticmethod
     def _fit(x, center=True, center_vec=None, standardize_cols=False):
@@ -205,19 +176,6 @@ class PCA:
         shuff_x = helpers.randomize_matrix(x0, rng)
         out, _ = PCA._fit(shuff_x, center=False, standardize_cols=False)
         return out['_eig_val']
-
-    # @staticmethod
-    # def _cross_validation_one_fold(train, test, params):
-    #     mod = PCA()
-    #     mod.fit(train, **params)
-    #     sc = mod.transform(test)
-    #     # generate predictions for all possible dimensionalities
-    #     predictions = np.zeros([test.shape[0], test.shape[1], mod.n_dim])
-    #     for d in range(1, mod.n_dim):
-    #         for_sc = sc.copy()
-    #         for_sc[:, d:] = 0  # suppress PCs d: end from influencing the prediction
-    #         predictions[:, :, d] = mod.predict(for_sc)
-    #     return np.abs(test[:, :, np.newaxis] - predictions)
 
     def fit_transform(self, x: np.ndarray, center: bool = True, center_vec: np.ndarray = None,
                       standardize_cols: np.ndarray = False) -> None:
@@ -263,14 +221,21 @@ class PCA:
     def predict(self, x: np.ndarray) -> np.ndarray:
         """
         Reverses the dimensionality reduction to get back the original feature values from the transformed values
+
         :param x: an l (observations) x self.n_dim matrix (or a vector of length self.n_dim)
         :return: an array with l rows and n (features) columns
         """
         return (x @ self.eig_vec) * self.standardize_cols_vec + self.center_vec
 
-    def parallel_analysis(self, n_reps=50, n_jobs=1, seed=None):
-        # generate independent random number generators for parallel processing
-        # following these recommendataions: https://albertcthomas.github.io/good-practices-random-number-generators/
+    def parallel_analysis(self, n_reps : int=50, n_jobs : int=1, seed: int | np.random.Generator=None):
+        """
+        Computes a 'null' distribution of eigenvalue spectra derived from random matrices. Run this method then PCA.parallel_analysis_plot to visualise and interpret the results and determine the optimum number of principal components
+
+        :param n_reps: number of repetitions to use in the parallel analysis
+        :param n_jobs: number of jobs to run in parallel
+        :param seed: random seed
+        """
+
         rng = np.random.default_rng(seed)
         ss = rng.bit_generator._seed_seq
         child_states = ss.spawn(n_reps)
@@ -279,43 +244,48 @@ class PCA:
                 joblib.delayed(self._parallel_analysis_one_iter)(self._params['x0'], child_states[x])
                 for x in range(n_reps))
         self._parallel_analysis_results = np.vstack(args)
-        return self._parallel_analysis_results
 
-    # def cross_validation(self, k=10, n_jobs=1, seed=None):
-    #     if k == 'L00':  # do leave one out
-    #         k = self._n_samples
-    #     # create an instance of KFold
-    #     kf=helpers._rng_kfold_split(k,seed)
-    #     # get the original training data matrix
-    #     data = self._params['x']
-    #     train_inds, test_inds,train_x,test_x= zip(*[(train, test,data[train,:],data[test,:]) for i, (train, test) in enumerate(kf.split(data))])
-    #
-    #     # retrieve the necessary parameters
-    #     params = copy.deepcopy(self._params)
-    #     params.pop('x')
-    #     params.pop('x0')
-    #     with joblib_progress('Running cross-validation', k):
-    #         errors = joblib.Parallel(n_jobs=n_jobs, verbose=0)(
-    #             joblib.delayed(self._cross_validation_one_fold)(train_x[x], test_x[x],params) for x in range(k))
-    #     test_i = np.squeeze(np.hstack(test_inds))
-    #
-    #     # the results might have slighlt different numbers of dimensions (as the number of observations per training fold may differ)
-    #     # so we will normalise the size of these
-    #     errors = helpers._trim_arrays_to_min_size(errors,axis=2)
-    #     errors = np.vstack(errors)
-    #     errors[test_i,:] = errors
-    #     self._cross_validation_results = errors
 
-    def scree_plot(self, ax=None):
+
+    def scree_plot(self, ax : plt.Axes=None) -> tuple:
+        """
+        Makes a scree plot of the eigenvalue spectrum
+
+        :param ax: optionally an axis handle
+        :return: a tuple containing 1. the axis handle on which the plot is plotted and 2. a NoneType object
+        """
         return _eigen_value_plot(self._initial_eig_val, title='Scree Plot', ax=ax)
 
-    def cumulative_variance_plot(self, ax=None):
+    def cumulative_variance_plot(self, ax : plt.Axes=None) -> tuple:
+        """
+        Plots the cumulative percentage of variance explained by each PC.
+
+        :param ax:
+        :return: a tuple containing 1. the axis handle on which the plot is plotted and 2. a NoneType object
+        """
         return _eigen_value_plot(np.cumsum(self._initial_eig_val) / self._initial_var * 100,
                                  eig_vals_label='Cumulative Var. Exp.',
                                  title='Cumulative Variance', ylabel='Variance\nExplained (%)', ax=ax)
 
-    def parallel_analysis_plot(self, ax=None, ci_level=95, threshold_level=97.5, n_reps=50, n_jobs=1,
-                               recompute_parallel_analysis=False, seed=None):
+    def parallel_analysis_plot(self, ax : plt.Axes=None, ci_level : float=95, threshold_level :float =95, n_reps: int=50, n_jobs : int=1,
+                               recompute_parallel_analysis : bool=False, seed : int | np.random.Generator=None) -> tuple:
+        """
+        Plots the result of a parallel analysis to determine the number of principal components to retain.
+        In a parallel analysis the observed eigenvalue spectrum is compared to a ('null') distribution of eigenvalue spectra
+        obtained from random matrices. If the observed eigenvalue for the ith principal component is greater
+        than the specified threshold it is considered 'significant'. The estimated number of components is the (k-1)th
+        component where k is the index of the first non-significant component. The plot plots the threshold as a solid line.
+        The null distribution is plotted as a shaded region that spans the 0-ci_level percentiles of this distribution.
+
+        :param ax: an axis handle on which to plot
+        :param ci_level: the upper limit of the null distribution (as a percentile) to plot as a shaded region
+        :param threshold_level: the percentile of the null distribution, if the eigenvalue exceeds this it is considered significant
+        :param n_reps: the number of repetitions to compute the null distribution (will be ignored if the null distribution has already been calculated by calling PCA.parallel_analysis and recompute_parallel_analysis==False)
+        :param n_jobs: the number of jobs to run in parallel while computing the null distribution (will be ignored if the null distribution has already been calculated by calling PCA.parallel_analysis and recompute_parallel_analysis==False)
+        :param recompute_parallel_analysis: if True will recompute the null distribution, even if ot has already been calculated
+        :param seed: seed for the random number generator
+        :return: a tuple containing 1. the axis on which the plot is plotted and 2. the estimated number of principal components
+        """
         # determine whether the empirical null distribution needs to be recalculated
         if (self._parallel_analysis_results is None) | recompute_parallel_analysis:
             self.parallel_analysis(n_reps=n_reps, n_jobs=n_jobs, seed=seed)
@@ -323,7 +293,22 @@ class PCA:
                                  distr_label='Null Spectra', ci_level=ci_level,
                                  threshold_level=threshold_level, ax=ax, title='Parallel\nAnalysis')
 
-    def broken_stick_plot(self, ax=None, ci_level=95, threshold_level=97.5, n_reps=1000):
+    def broken_stick_plot(self, ax : plt.Axes=None, ci_level :float=95, threshold_level: float=95, n_reps: int=1000) -> tuple:
+        """
+        Plots the result of a broken stick analysis to determine the number of principal components to retain.
+        In a broken stick analysis the observed eigenvalue spectrum is compared to a ('null') distribution of eigenvalue spectra
+        produced by randomly uniformly splitting the total variance ito the maximum number of principal components possible. If the observed eigenvalue for the ith principal component is greater
+        than the specified threshold it is considered 'significant'. The estimated number of components is the (k-1)th
+        component where k is the index of the first non-significant component. The plot plots the threshold as a solid line.
+        The null distribution is plotted as a shaded region that spans the 0-ci_level percentiles of this distribution.
+
+        :param ax: an axis handle on which to plot
+        :param ci_level: the upper limit of the null distribution (as a percentile) to plot as a shaded region
+        :param threshold_level: the percentile of the null distribution, if the eigenvalue exceeds this it is considered significant
+        :param n_reps: the number of repetitions to perform to estimate the broken stick distribution
+        :return: a tuple containing 1. the axis on which the plot is plotted and 2. the estimated number of principal components
+
+        """
         # get the empirical broken stick distribution
         N = len(self._initial_eig_val)
         lengths = helpers.broken_stick_empirical(N, n_reps) * self._initial_var
@@ -331,35 +316,23 @@ class PCA:
                                  ci_level=ci_level,
                                  threshold_level=threshold_level, title='Broken Stick')
 
-    # def cross_validation_plot(self,ax = None,atol=1e8,rtol=1e5,recompute_cross_validation=False,k=10,seed=None,n_jobs=None):
-    #     if recompute_cross_validation | (self._cross_validation_results is None):
-    #         self.cross_validation(k=k,n_jobs=n_jobs,seed=seed)
-    #
-    #     cv_err = self.cv_error_per_dim
-    #     ax,_ = _eigen_value_plot(cv_err[1:],eig_vals_label='Error',ylabel='Cross Validation\nMSE',title='Cross Validation')
-    #     min_err = np.min(cv_err)
-    #     # get the earliest error that is within the specified tolerance of the min value
-    #     inds = np.nonzero(np.isclose(cv_err,np.tile(min_err,len(cv_err)),atol=atol,rtol=rtol))
-    #     n_comps = inds[0][0]
-    #     ax.axvline(x=n_comps, c='k', ls=':', label='Estimated No. Comp.')
-    #     ax.legend()
+
     def trim_no_pcs(self, no_pcs: int):
         """
         Modifies the object in situ, removing the specified number of pcs
 
         :param no_pcs: the number of pcs to retain
-        :return: None
         """
         self._eig_vec = self._eig_vec[0:no_pcs, :]
         self._eig_val = self._eig_val[0:no_pcs]
         self._transformed_training_data = self._transformed_training_data[:, 0:no_pcs]
 
-    def trim_perc_var(self, pct_var: float) -> None:
+    def trim_perc_var(self, pct_var: float) :
         """
         Modifies the object in situ, removing the number of pcs explaining up to the specified amount of variance
 
         :param pct_var: the percentage of variance s to retain
-        :return: None
+
         """
         if (pct_var <= 0.) | (pct_var >= 100.):
             raise ValueError('pct_var must be between 0 and 100')
@@ -372,7 +345,7 @@ class PCA:
     def weighted_transform_to_model(self, x: np.ndarray, weights: np.ndarray, max_m_dist: float = None) -> np.ndarray:
         """
         Performs the dimensionality reduction on a single observation with weights that increase/decrease the infleunce
-        of a given feature on the solution. the solution can also be constrained to lie within a specified Mahalanobis
+        of a given feature on the solution. The solution can also be constrained to lie within a specified Mahalanobis
         distance of the origin.
 
         :param x: a single observation in the original feature space
@@ -421,6 +394,7 @@ class PCA:
         """
         Returns the probability  an observation as or more extreme than the given
         Mahalanobis distance from the origin
+
         :param md: the mahalanobis distance, can be a float or an array of floats
         :return: the p-values corresponding to the elements in md
         """
@@ -461,6 +435,9 @@ class PCA:
 
 
 class ShapePCA(PCA):
+    """
+    Implements some additional properties and methods for doing principall components analysis on a sample of shapes
+    """
     def __init__(self):
         super().__init__()
         self._average_polydata = None
@@ -497,15 +474,11 @@ class ShapePCA(PCA):
         else:
             raise ValueError('Reference polydata should be an instance of helpers.TriPolyData')
 
-    def load_from_folder(self, path=None):
-        pass
-
-    def weighted_transform_to_model(self, x: np.ndarray, weights: np.ndarray, max_m_dist: float = None) -> np.ndarray:
-        pass
 
     def fit(self, x: np.ndarray, center: bool = True, center_config: np.ndarray = None):
         """Fits the PCA model to training data x - uses the singular value decomposition of (centered) x.
-        :param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
+        :
+        param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
         :param center: if True x will be centered along the third dimension by center_config x  prior to the SVD
         :param center_config: if None the 'center_config' defaults to np.mean(x,axis=2) and thus centers the landm,rks on their mean shapes
         """
@@ -549,6 +522,7 @@ class ShapePCA(PCA):
 
     def fit_transform(self, x: np.ndarray, center: bool = True, center_config: np.ndarray = None):
         """Fits the PCA model to training data in x and transforms it into the lower dimensional space
+
         :param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
         :param center: if True x will be centered along the third dimension by center_config x  prior to the SVD
         :param center_config: if None the 'center_config' defaults to np.mean(x,axis=2) and thus centers the landmarks on their mean shapes
@@ -556,17 +530,27 @@ class ShapePCA(PCA):
         self.fit(x, center=center, center_config=center_config)
         self._transformed_training_data, _ = self.transform(x, apply_procrustes_transform=False)
 
-    def animate_pc(self, pc_num, max_sd, n_frames=20, **kwargs):
+    def animate_pc(self, pc_num : int, max_sd : float = 3, n_frames=20, **kwargs):
+        """
+        Makes an animation illustrating the shape change associated a specified PC
+        :param pc_num: the PC to visualise
+        :param max_sd: The shape will be morphed between -max_sd - max_sd standard deviations
+        :param n_frames: the number of frames to render in the animation
+        :param kwargs: keyword arguments that will be passed to helpers.animate_vectors, consult its documenation for details but note the following differences in default behaviour
+                by default calling animate_pc will render off screen and write the animation to a file 'PC_'+str(pc_num)+'.gif'
+                to change this behaviour set off_screen=False and file_name to the file_name of your choice
+        """
+
         # for safety make clone
         kwargs = copy.deepcopy(kwargs)
         vec = helpers.landmark_2d_to_3d(self.eig_vec[pc_num, :] * self.eig_std[pc_num])
         frame_scalars = helpers._generate_circular_sequence(max_sd, -max_sd, n_in_sequence=n_frames)
-        mode = kwargs.pop('mode', 'write_gif')
+
+        # set default values of some of the keyword arguments
         file_name = kwargs.pop('file_name', 'PC_' + str(pc_num))
         off_screen = kwargs.pop('off_screen', False)
-        if mode == 'write_gif':
-            ext = '.gif'
-            file_name = os.path.splitext(file_name)[0] + ext
+
+        # make animation
         helpers.animate_vectors(self.average_polydata, vec, frame_scalars, mode=mode, file_name=file_name,
                                off_screen=off_screen, **kwargs)
 
@@ -604,12 +588,15 @@ def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None
             n_comps = np.min(inds)
         ax.axvline(x=n_comps, c='k', ls=':', label='Estimated No. Comp.')
     else:
-        n_comps = []
+        n_comps = None
     ax.legend()
     return ax, n_comps
 
 
-class PLS(ABC):
+class _PLS(ABC):
+    """
+    An abstract base class implementing properties and methods common to all classes implementing partial least-squares analyses
+    """
     def __init__(self):
         super().__init__()
         self._x = None
@@ -628,10 +615,11 @@ class PLS(ABC):
     @property
     def y(self):
         """
-        The complete block of y variables, before exclusion mask or dummy variables are created as  a pandas
+        The complete block of y variables, before exclusion mask or dummy variables are created, as a pandas
         DataFrame. The y.setter, depending on the subclass, may take or expect an instance of
-        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the axxtribute
-        'PCA.transformed_training_data' cast into a DataFrane
+        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the attribute
+        'PCA.transformed_training_data' cast into a DataFrame
+
         :type: pd.DataFrame
          """
         return self._convert_to_data_frame(self._y)
@@ -644,7 +632,7 @@ class PLS(ABC):
     @property
     def x(self):
         """
-        The complete block of x variables, before exclusion mask or dummy variables are created as either a numpy array or a pandas
+        The complete block of x variables, before exclusion mask or dummy variables are created as a pandas
         DataFrame. The x.setter, depending on the subclass, may take or expect an instance of
         python_shape_stats.statistical_shape_models.PCA in which case the getter will return the axxtribute
         'PCA.transformed_training_data'
@@ -666,6 +654,12 @@ class PLS(ABC):
 
     @property
     def center_x(self):
+        """
+        Indicates whether or not the x-block is to be column centered. Is intended to be set only via a call to the 'fit' method of the class
+
+        :type: bool
+        """
+
         return self._center_x
 
     # @center_x.setter
@@ -673,6 +667,11 @@ class PLS(ABC):
     #     self._center_x = val
     @property
     def center_y(self):
+        """
+        Indicates whether or not the y-block is to be column-centered. Is intended to be set only via a call to the 'fit' method of the class
+
+        :type: bool
+        """
         return self._center_y
 
     # @center_y.setter
@@ -681,6 +680,11 @@ class PLS(ABC):
 
     @property
     def standardize_x(self):
+        """
+        Indicates whether or not the x-block is to be column standardized to have unit variance. Is intended to be set only via a call to the 'fit' method of the class
+
+        :type: bool
+        """
         return self._standardize_x
 
     # @standardize_x.setter
@@ -689,11 +693,15 @@ class PLS(ABC):
 
     @property
     def standardize_y(self):
+        """
+        Indicates whether or not the x-block is to be column standardized to have unit variance. Is intended to be set only via a call to the 'fit' method of the class
+
+        :type: bool
+        """
+
         return self._standardize_y
 
-    # @standardize_y.setter
-    # def standardize_y(self,val):
-    #     self._standardize_y = val
+
     @property
     def n_obs(self):
         """
@@ -709,7 +717,7 @@ class PLS(ABC):
     def x_treated(self):
         """
         The block of x variables  after categorical variables are expanded to dummy variables
-        and exclusion mask has been applied.If no categorical variables are in self.x and no
+        and exclusion mask has been applied. If no categorical variables are in self.x and no
         observation mask has been applied then this is the same as self.x cast into a DataFrame
 
         :type: pd.DataFrame
@@ -790,6 +798,10 @@ class PLS(ABC):
 
     @property
     def observation_weights(self):
+        """
+        A vector of weights (one for each observation) that control the influence of each observation on the fitted model
+        :type: np.ndarray
+        """
         if self._observation_weights is None:
             if self._x is None:
                 return None
@@ -803,6 +815,13 @@ class PLS(ABC):
 
     @property
     def observation_mask(self):
+        """
+        A boolean vector that can be used to control the observations that are included in fitting the model.
+        Each element corresponds to an observation (row of x and y). If the value is true then that observation will be included
+        otherwise it won't be.
+
+        :type: np.ndarray
+        """
         if self._observation_mask is None:
             if self._x is None:
                 return None
@@ -823,18 +842,34 @@ class PLS(ABC):
 
     @property
     def no_y_features(self):
+        """
+        The number of features/variables (columns) of the y-block before categorical variables are expanded to dummy variables
+
+        :type: int
+        """
         if self._y0 is None:
             return None
         return self._y0.shape[1]
 
     @property
     def no_x_features(self):
+        """
+        The number of features/variables (columns) of the x-block before categorical variables are expanded to dummy variables
+
+        :type: int
+            """
+
         if self._x0 is None:
             return None
         return self._x0.shape[1]
 
     @property
     def x_mu(self):
+        """
+        The (weighted) column means of x after categorical variables are expanded to dummy variables and after the observation mask has been applied
+
+        :type: np.ndarray
+        """
         if self._x_mu is None:
             # if the mean has not been otherwise explicitly set
             if self.x_treated is None:
@@ -846,6 +881,12 @@ class PLS(ABC):
 
     @property
     def x_std(self):
+        """
+        The (weighted) column standard deviations of x after categorical variables are expanded to dummy variables and after the observation mask has been applied
+
+        :type: np.ndarray
+        """
+
         if self._x_std is None:
             if self.x is None:
                 return None
@@ -859,6 +900,12 @@ class PLS(ABC):
 
     @property
     def y_mu(self):
+        """
+        The (weighted) column means of y after categorical variables are expanded to dummy variables and after the observation mask has been applied
+
+        :type: np.ndarray
+        """
+
         if self._y_mu is None:
             # if the mean has not been otherwise explicitly set
             if self.y_treated is None:
@@ -870,6 +917,11 @@ class PLS(ABC):
 
     @property
     def y_std(self):
+        """
+        The (weighted) column standard deviations of x after categorical variables are expanded to dummy variables and after the observation mask has been applied
+
+        :type: np.ndarray
+        """
         if self._y_std is None:
             if self.y_treated is None:
                 return None
@@ -907,7 +959,7 @@ class PLS(ABC):
                           pd.DataFrame):  # it is expected that an end user will not be able to reach this error, this error indicates a bug
             raise TypeError('Expected pandas.DataFrame')
         x = x.iloc[mask]
-        x, indices = PLS._expand_block(x, x.dtypes, search_for_categories=search_for_cats)
+        x, indices = _PLS._expand_block(x, x.dtypes, search_for_categories=search_for_cats)
         return x, indices, helpers.squeeze_categorical_dtypes(x)
 
     @staticmethod
@@ -963,7 +1015,7 @@ class PLS(ABC):
         ...
 
 
-class PLS_2B(PLS):
+class PLS_2B(_PLS):
     """
     Performs a symmetrical 2-block PLS via singular value decomposition of x.T @ Y
     """
@@ -1043,6 +1095,7 @@ class PLS_2B(PLS):
                 raise TypeError('when \'expand_categories\'==True x is expected to be a pandas data frame')
                 # convert categorical data to dummy coded data if present
                 y = self._expand_block(y, dtypes=self._yblock_data_types)
+
         if isinstance(y, (pd.DataFrame, pd.Series)):
             y = y.to_numpy(dtype=float)
         if self.center_y:
@@ -1148,7 +1201,7 @@ class PLS_2B(PLS):
 
         _eigen_value_plot(self.cov_explained, eig_vals_label='Covariance Explained',
                           distr=self._permutation_null_distribution, distr_label='Null', ci_level=CIpct,
-                          threshold_level=CIpct, ax=ax, xlabel='PLS Dim',
+                          threshold_level=CIpct, ax=ax, xlabel='_PLS Dim',
                           ylabel='Explained\nCovariance', title='')
 
 class ShapePLS_2B(PLS_2B):
@@ -1182,7 +1235,7 @@ class ShapePLS_2B(PLS_2B):
     def _get_frame_scalars(self,dim,max_sd=3,n_frames=20):
         sc_x = helpers._generate_circular_sequence(-max_sd, max_sd, 0, n_in_sequence=n_frames) * np.std(
             self.x_scores[:, dim])
-        sc_y = self.predict_y_scores_from_x(sc_x)
+        sc_y = sc_x*self.inner_relation_coefs[dim]
         frame_scalars = [sc_x,sc_y]
         is_shape = [self._is_x_shape,self._is_y_shape]
         return [frame_scalars[i] for i in range(2) if is_shape[i]]
@@ -1244,7 +1297,7 @@ class ShapePLS_2B(PLS_2B):
 
 
 
-class PLSHypothesisTest(PLS):
+class PLSHypothesisTest(_PLS):
     def __init__(self):
         super().__init__()
         self._n_comp = None
@@ -1281,7 +1334,7 @@ class PLSHypothesisTest(PLS):
         self._method = method
         self._n_comp = n_comp
         self._coefs = self._fit(self._x0,self._y0,n_comp,method=self.method)
-        self._var_r_squared = self._get_var_r_squared()
+        self._var_r_squared = self._compute_var_r_squared()
 
 
 
@@ -1292,8 +1345,10 @@ class PLSHypothesisTest(PLS):
 
     def _unpack_null_distributions(self,perm_models):
         out = dict()
-        for key in perm_models.keys():
-            out[key] = self._get_rsquared(perm_models[key][0],perm_models[key][1])
+        keys = [item for item in perm_models.keys()]
+        for x in tqdm(range(len(keys)), desc="Unpacking…", ascii=False, ncols=75):
+            key = keys[x]
+            out[key] = self._compute_rsquared(perm_models[key][0], perm_models[key][1])
         return out
 
     def _fit_permuted_models(self,vars_to_test = None,test_full_model = True,seed=None,n_reps=1000,n_jobs=True):
@@ -1324,19 +1379,19 @@ class PLSHypothesisTest(PLS):
             results['Full Model'] = (_run_parallel(self._x0,self._y0),self._y0)
         return results
 
-    def _get_rsquared(self,res,y0):
+    def _compute_rsquared(self,res,y0):
         if not helpers.my_is_iterable(res):
             res = [res]
         tot_var = np.sum(y0.flatten()**2)
         res_var = np.array([np.sum(item.flatten()**2) for item in res])
         return (1 - res_var / tot_var,)
 
-    def _get_var_r_squared(self):
+    def _compute_var_r_squared(self):
         out = dict()
         for var in self.x.columns:
             x0,y0 = self._get_reduced_xy(self._find_var_in_x(var,False))
             _,res = self._fit_residualize(x0, y0, n_comp=None, method=self.method)
-            out[var] = self._get_rsquared(res,y0)
+            out[var] = self._compute_rsquared(res, y0)
         return out
 
     @staticmethod
@@ -1361,7 +1416,6 @@ class PLSHypothesisTest(PLS):
     def _assemble_model_stats(self):
         if self._var_r_squared is None:
             return None
-
         out = pd.DataFrame(data=np.ones([len(self._var_r_squared),2])*np.nan,index=self._var_r_squared.keys(),columns=['R_2','p'])
         for key in self._var_r_squared.keys():
             R2=self._var_r_squared[key][0]
@@ -1407,7 +1461,6 @@ class PLSHypothesisTest(PLS):
             vec = vec*-1
         return vec
 
-
     def _find_var_in_x(self,x_var,search_in_x_treated=True):
         if search_in_x_treated:
             x = self.x_treated
@@ -1447,25 +1500,23 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
 
 
 
-    def _get_rsquared(self,res,y0):
-        ef_rsq = super()._get_rsquared(res,y0)
+    def _compute_rsquared(self,res,y0):
+        ef_rsq = super()._compute_rsquared(res, y0)[0]
         # compute r squared per point
         if not helpers.my_is_iterable(res):
             res = [res]
-
         # rotate back to the space of landmarks and reshape
         res = [helpers.landmark_2d_to_3d(item @ self._y.eig_vec) for item in res]
         y0 = np.atleast_3d(helpers.landmark_2d_to_3d(y0 @ self._y.eig_vec))
-        ss_per_point = lambda x : np.sum(np.sum(x**2,axis=1),axis=1)
-
+        ss_per_point = lambda x : np.squeeze(np.sum(np.sum(x**2,axis=1),axis=1))[:,np.newaxis]
         tot_var = ss_per_point(y0)
-        res_var = np.array([ss_per_point(item) for item in res])
-
-
+        res_var = np.hstack([ss_per_point(item) for item in res])
+        point_rsqu = 1 - res_var / tot_var
+        return (ef_rsq,point_rsqu)
     def _get_regression_vector(self, x_var,reverse=False):
         vec = super()._get_regression_vector(x_var,reverse=reverse)
         return helpers.landmark_2d_to_3d(vec @ self._y.eig_vec)
-    def _get_point_scalars(self,direction,x_vars,reverse=False):
+    def _get_point_regression_coefs(self,direction,x_vars,reverse=False):
         if not helpers.my_is_iterable(x_vars):
             x_vars = [x_vars]
         vecs = self._get_regression_vectors(x_vars,reverse=reverse)
@@ -1477,9 +1528,29 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
         else:
             raise ValueError('Direction should be \'normal\' or \'total\'')
         return sc
-    def plot_colormap(self,x_vars, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
+
+    def _get_point_r_squared(self,x_vars):
+        if not helpers.my_is_iterable(x_vars):
+            x_vars = [x_vars]
+        # check variable exists
+        [self._find_var_in_x(item,search_in_x_treated=False) for item in x_vars]
+        return [self._var_r_squared[item][1] for item in x_vars]
+
+    def _get_point_p_values(self,x_vars):
+        if not helpers.my_is_iterable(x_vars):
+            x_vars = [x_vars]
+            # check variable exists
+        [self._find_var_in_x(item, search_in_x_treated=False) for item in x_vars]
+        out = []
+        for var in x_vars:
+            r = self._var_r_squared[var][1]
+            null_rsqu = self._null_r_squared[var][1]
+            n_perms = null_rsqu.shape[1]
+            p = np.sum((null_rsqu-r)>0,axis=1) / n_perms
+
+    def plot_coefficients(self,x_vars, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
         pd = self._y.average_polydata
-        point_scalars = self._get_point_scalars(x_vars=x_vars,direction=direction)
+        point_scalars = self._get_point_regression_coefs(direction=direction, x_vars=x_vars)
         if file_name is None:
             file_name = 'regression_'+str(x_vars).replace('[','').replace(',','_')
         helpers.plot_colormaps(pd,point_scalars,file_name=file_name,clim=clim,off_screen=off_screen,cmap=cmap,link_views=link_views,link_cmaps=link_cmap,same_coordinate_system=False)
@@ -1575,7 +1646,4 @@ def pls_svd(cross_cov):
     [u, s, v] = np.linalg.svd(cross_cov, full_matrices=False)
 
 
-# print(__name__)
-if __name__ == '__main__':
-    obj = PCA()
-    obj2 = ShapePCA()
+
