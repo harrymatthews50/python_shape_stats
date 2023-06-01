@@ -15,6 +15,7 @@ import joblib
 from joblib_progress import joblib_progress
 from tqdm import tqdm
 import pickle
+import PIL
 def get_camera_properies(cam):
     keys = [item for item in dir(cam) if item[0].islower()]
     out = dict()
@@ -191,10 +192,8 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     def _morph_shape():
         [item.VisibilityOff() for item in prompt_text]
         if mode == 'write_gif':
-           # ext = '.gif'
-           # file_name = os.path.splitext(file_name)[0] + ext
             writing = True
-            pl.open_gif(filename=file_name,fps = fps,loop=True)
+            pl.open_gif(filename=file_name,fps = fps,loop=0)
         n_frames = len(frame_scalars[0])
         for f in tqdm (range(n_frames),desc="Animating…",
                ascii=False, ncols=75):
@@ -256,6 +255,7 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
         if not same_coordinate_system:
             r,c = np.unravel_index(x,[n_rows,n_cols])
             pl.subplot(r,c)
+            pl.add_key_event('k', _morph_shape) # add key event ton each subplot
         add_shape(base_polydata[x],pl)
         prompt_text.append(pl.add_text('Press k to begin',color=[0,0,0]))
         if cam_view is not None:
@@ -264,8 +264,8 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
             else:
                     set_camera_view(pl.camera, cam_view[0])
 
-        pl.add_key_event('k',_morph_shape)
-
+    if same_coordinate_system:
+        pl.add_key_event('k', _morph_shape)  # add key event once to the plotter
 
     if link_views:
         pl.link_views()
@@ -278,8 +278,14 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
 def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=True,link_views=True,same_coordinate_system=True):
     def _print_to_file():
         [item.VisibilityOff() for item in prompt_text]
-
-        pl.save_graphic(filename=file_name)
+        pl.update()
+        ext = os.path.splitext(file_name)
+        if ext in ['.svg','.eps','.ps','.pdf','.tex']:
+            pl.save_graphic(filename=file_name)
+        else:
+            # try saving a screenshot via pillow
+            im = PIL.Image.fromarray(pl.image)
+            im.save(file_name)
         print('Written to '+os.path.abspath(file_name))
         [item.VisibilityOn() for item in prompt_text]
         pl.update()
@@ -287,7 +293,7 @@ def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=No
     if same_coordinate_system == True:
         if not link_cmaps:
             Warning('Plotting multiple meshes in the same plotter (same_coordinate_system==True) '
-                    'with different colormaps and limits (link_cmaps==False) will result in a misleading figure anmd'
+                    'with different colormaps and limits (link_cmaps==False) will result in a misleading figure and'
                     'and is not recommended')
 
 
