@@ -20,7 +20,7 @@ import pyvista
 class PCA:
     """
     Implements a principal components analysis of a data matrix with several
-    methods for determining the number of principal components
+    methods for determining the number of principal components.
     """
     def __init__(self):
         self._eig_vec = None
@@ -42,7 +42,7 @@ class PCA:
         """
         The right singular vectors (the PCs) of the data matrix . The first dimension corresponds to PCs, the second to features.
 
-        :type: np.ndarray | NoneType
+        :type: np.ndarray
         """
         return self._eig_vec
 
@@ -53,7 +53,8 @@ class PCA:
 
         :math:`\\frac{s^2}{k}` where :math:`s` is the singular values and
         :math:`k` is the number of observations (rows in the training data matrix). If x is column-mean centered in the call to 'fit' This is equal to the sample variance in each dimension of the transformed data.
-        :type: np.ndarray | NoneType
+
+        :type: np.ndarray
         """
 
         return self._eig_val
@@ -63,7 +64,7 @@ class PCA:
         """
         The square root of 'self.eig_val'. If x was column mean centered during the call to 'self.fit' these are the sample standard deviations of the transformed training data
 
-        :type: np.ndarray | NoneType
+        :type: np.ndarray
         """
         if self.eig_val is None:
             return None
@@ -100,7 +101,7 @@ class PCA:
         Coordinates of the training data in the space spanned by the PCs. Rows correspond to observations, columns to PCs
         These are alternatively called 'PC scores'
 
-        :type: np.ndarray | NoneType
+        :type: np.ndarray
         """
         return self._transformed_training_data
 
@@ -110,7 +111,7 @@ class PCA:
         The vector used to center the columns of x. Using default keyword arguments to 'fit' this is the column mean of
         the training data matrix
 
-        :type: np.ndarray | None
+        :type: np.ndarray
         """
         if self._center_vec is not None:
             return self._center_vec
@@ -124,7 +125,7 @@ class PCA:
         """
         The vector used to standardize the columns of x. If standardize_cols == True during the call to fit this will be the column root mean square deviation from 'center_vec'
 
-        :type: np.ndarray | None
+        :type: np.ndarray
         """
 
         if self._standardize_cols_vec is not None:
@@ -260,7 +261,7 @@ class PCA:
         """
         Plots the cumulative percentage of variance explained by each PC.
 
-        :param ax:
+        :param ax: an axis on which to plot.
         :return: a tuple containing 1. the axis handle on which the plot is plotted and 2. a NoneType object
         """
         return _eigen_value_plot(np.cumsum(self._initial_eig_val) / self._initial_var * 100,
@@ -593,7 +594,7 @@ def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None
     return ax, n_comps
 
 
-class _PLS(ABC):
+class PLS(ABC):
     """
     An abstract base class implementing properties and methods common to all classes implementing partial least-squares analyses
     """
@@ -615,11 +616,10 @@ class _PLS(ABC):
     @property
     def y(self):
         """
-        The complete block of y variables, before exclusion mask or dummy variables are created, as a pandas
+        The complete block of y variables, before exclusion mask or dummy variables are created as a pandas
         DataFrame. The y.setter, depending on the subclass, may take or expect an instance of
-        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the attribute
-        'PCA.transformed_training_data' cast into a DataFrame
-
+        :py:class:`PCA` or :py:class:`ShapePCA` in which case the getter will return the attribute
+        :py:attr:`PCA.transformed_training_data`
         :type: pd.DataFrame
          """
         return self._convert_to_data_frame(self._y)
@@ -634,8 +634,8 @@ class _PLS(ABC):
         """
         The complete block of x variables, before exclusion mask or dummy variables are created as a pandas
         DataFrame. The x.setter, depending on the subclass, may take or expect an instance of
-        python_shape_stats.statistical_shape_models.PCA in which case the getter will return the axxtribute
-        'PCA.transformed_training_data'
+        :py:class:`PCA` or :py:class:`ShapePCA` in which case the getter will return the attribute
+        :py:attr:`PCA.transformed_training_data`
 
         :type: pd.DataFrame
         """
@@ -800,6 +800,7 @@ class _PLS(ABC):
     def observation_weights(self):
         """
         A vector of weights (one for each observation) that control the influence of each observation on the fitted model
+
         :type: np.ndarray
         """
         if self._observation_weights is None:
@@ -807,6 +808,9 @@ class _PLS(ABC):
                 return None
             return np.ones(self.__n_obs)
         else:
+            if len(self._observation_weights) != self.__n_obs:
+                raise ValueError('observation weights should be the same length as the number of observations')
+
             return self._observation_weights
 
     @observation_weights.setter
@@ -959,7 +963,7 @@ class _PLS(ABC):
                           pd.DataFrame):  # it is expected that an end user will not be able to reach this error, this error indicates a bug
             raise TypeError('Expected pandas.DataFrame')
         x = x.iloc[mask]
-        x, indices = _PLS._expand_block(x, x.dtypes, search_for_categories=search_for_cats)
+        x, indices = PLS._expand_block(x, x.dtypes, search_for_categories=search_for_cats)
         return x, indices, helpers.squeeze_categorical_dtypes(x)
 
     @staticmethod
@@ -1015,10 +1019,20 @@ class _PLS(ABC):
         ...
 
 
-class PLS_2B(_PLS):
+class PLS_2B(PLS):
     """
-    Performs a symmetrical 2-block PLS via singular value decomposition of x.T @ Y
+    Performs a symmetrical 2-block PLS via singular value decomposition of the cross-covariance matrix C
     """
+    # :math:`C = X0^T \\cdot Y0` where X0 and Y0 are two n (observations) by k (x features) or q (y features) matrices.
+    # These matrices are usually column mean-centered and optionally standardised so that column variance is equal to 1.
+    # The singular value decomposition yields
+    #
+    # :math: `USV^T = C`
+    #
+    # where the ith column of U and V
+
+
+
 
     def __init__(self):
         super().__init__()
@@ -1032,45 +1046,95 @@ class PLS_2B(_PLS):
 
     @property
     def x_projection_matrix(self):
+        """
+        An orthogonal projection matrix onto the lower-dimensional space of the x-scares.
+        Rows correspond to the features (columns) in the x-block, columns correspond to the PLS dimensions.
+
+        :type: np.ndarray
+        """
         return self._x_projection_matrix
 
     @property
     def y_projection_matrix(self):
+        """
+        An orthogonal projection matrix onto the lower-dimensional space of the y-scares.
+        Rows correspond to the features (columns) in the y-block, columns correspond to the PLS dimensions.
+
+        :type: np.ndarray
+        """
         return self._y_projection_matrix
+
 
     @property
     def cov_explained(self):
+        """
+        The amount of covariance explained by each latent dimension
+
+        :type: np.ndarray
+        """
         return self._cov_explained
 
     @property
     def x_scores(self):
+        """
+        The observations in the x-block represented in the lower-dimensional space.
+        Rows correspond to observations, columns to dimensions.
+
+        :type: np.ndarray
+        """
         return self._x_scores
 
     @property
     def y_scores(self):
+        """
+        The observations in the y-block represented in the lower-dimensional space.
+        Rows correspond to observations, columns to dimensions.
+
+        :type: np.ndarray
+        """
         return self._y_scores
 
     @property
     def n_dim(self):
+        """
+        The number of latent dimensions in the model
+
+        :type: int
+        """
         if self.cov_explained is None:
             return None
         else:
-            len(self.cov_explained)
+            return len(self.cov_explained)
 
     @property
     def inner_relation_coefs(self):
+        """
+        Coefficients modelling the relationship between the x-scores and the y scores.
+        Each coefficient corresponds to a pair of dimensions. The ith coefficient is the coefficient of a major axis regression of self.y_scores[:,i] onto self.x_scores[:,i]
+
+        :type: np.ndarray
+        """
         return self._inner_relation_coefs
 
     @property
     def perm_test_p_values(self):
+        """
+        P values corresponding to each latent dimension. :py:meth:`PLS_2B.compute_null_distribution` before accessing this property
+
+        :type: np.ndarray
+        """
         if self._permutation_null_distribution is None:
             return None
         return np.sum((self._permutation_null_distribution - self.cov_explained[np.newaxis,:])>=0,axis=0) / self._permutation_null_distribution.shape[0]
 
-    def transform_x(self, x, expand_categories=True):
+    def transform_x(self, x : np.ndarray | pd.DataFrame, expand_categories : bool=True) -> np.ndarray:
         """
-        :param x:
-        :param expand categories:
+        Performs the dimension reduction on x. If expand_categories == True the function will search for categorical variables in x
+        and expand them into dummy variables.
+
+        :param x: an n (observations) by k (number of x features) np.ndarrdy or pd.DataFrame. If expand_categories==True, this must be a DataFrame
+        :param expand categories: whether to search for categoricakl variables in x and expand them into dummy variables.
+
         :return: np.ndarray
         """
         if expand_categories:
@@ -1089,7 +1153,17 @@ class PLS_2B(_PLS):
 
         return x @ self.x_projection_matrix
 
-    def transform_y(self, y, expand_categories=True):
+    def transform_y(self, y : np.ndarray | pd.DataFrame , expand_categories:bool=True)->np.ndarray:
+        """
+        Performs the dimension reduction on y. If expand_categories == True the function will search for categorical variables in x
+        and expand them into dummy variables.
+
+        :param x: an n (observations) by k (number of x features) np.ndarrdy or pd.DataFrame. If expand_categories==True, this must be a DataFrame
+        :param expand categories: whether to search for categoricakl variables in x and expand them into dummy variables.
+
+        :return: np.ndarray
+        """
+
         if expand_categories:
             if not isinstance(y, pd.DataFrame):
                 raise TypeError('when \'expand_categories\'==True x is expected to be a pandas data frame')
@@ -1106,8 +1180,23 @@ class PLS_2B(_PLS):
 
 
 
-    def fit(self, x, y, center_x=True, center_y=True, standardize_x=False, standardize_y=False,
-            observation_weights=None, observation_mask=None):
+    def fit(self, x : np.ndarray | pd.DataFrame | ShapePCA, y: np.ndarray | pd.DataFrame | ShapePCA, center_x:bool=True, center_y:bool=True, standardize_x:bool=False, standardize_y:bool=False,
+            observation_weights:np.ndarray=None, observation_mask:np.ndarray=None):
+        """
+        Fits the two block PLS model to the data x and y
+
+        :param x: the x-block of variables. This can be an n (observations) by k features np.ndarray or pd.DataFrame. It can also be an instance of :py:class:`PCA` or one of its subclasses. If it is an np.ndarray this simply becomes the x block.
+        If it is a DataFrame, each column's dtype is checked if dtype=='category' these will be expanded to l-1 dummy variables, where l is the number of unique values in the column. If it is a :py:class:`PCA` (or a subclass thereof) the x block will be the PC scores :py:attr:`PCA.transformed_training_data`
+        :param y: the y-block of variables. The same details apply as for 'x'
+        :param center_x: boolean indicating whether to column mean center x
+        :param center_y: boolean indicating whether to column mean center y
+        :param standardize_x: boolean indicating whether to standardize the columns of x to have unit variance
+        :param standardize_y:boolean indicating whether to standardize the columns of y to have unit variance
+        :param observation_weights: a vector of length n (observations)
+        :param observation_mask:
+        :return:
+        """
+
         self._center_x = center_x
         self._center_y = center_y
         self._standardize_x = standardize_x
@@ -1124,7 +1213,7 @@ class PLS_2B(_PLS):
                                                                                                    rank_upper_bound)
         self._x_scores = self.transform_x(self.x_treated, expand_categories=False)
         self._y_scores = self.transform_y(self.y_treated, expand_categories=False)
-        self._inner_relation_coefs = self.fit_inner_relation(self.x_scores, self.y_scores,
+        self._inner_relation_coefs = self._fit_inner_relation(self.x_scores, self.y_scores,
                                                              self.observation_weights[self.observation_mask])
 
     @staticmethod
@@ -1136,9 +1225,9 @@ class PLS_2B(_PLS):
         return u, v.T, (s ** 2) / sum(w)
 
     @staticmethod
-    def fit_inner_relation(x_scores, y_scores, weights):
+    def _fit_inner_relation(x_scores, y_scores, weights):
         """
-        Model the relationship between each pair of latent variables self.xscores[:,i] self.y_scores[:,i]
+        Fits the inner model between the x scores and the y scores. The relationship between each pair of latent variables self.xscores[:,i] self.y_scores[:,i]
         as a symmetrical (major axis) regression
 
         :return: coefs
@@ -1201,7 +1290,7 @@ class PLS_2B(_PLS):
 
         _eigen_value_plot(self.cov_explained, eig_vals_label='Covariance Explained',
                           distr=self._permutation_null_distribution, distr_label='Null', ci_level=CIpct,
-                          threshold_level=CIpct, ax=ax, xlabel='_PLS Dim',
+                          threshold_level=CIpct, ax=ax, xlabel='PLS Dim',
                           ylabel='Explained\nCovariance', title='')
 
 class ShapePLS_2B(PLS_2B):
@@ -1297,7 +1386,7 @@ class ShapePLS_2B(PLS_2B):
 
 
 
-class PLSHypothesisTest(_PLS):
+class PLSHypothesisTest(PLS):
     def __init__(self):
         super().__init__()
         self._n_comp = None
