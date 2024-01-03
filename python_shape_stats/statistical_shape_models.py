@@ -437,7 +437,7 @@ class PCA:
 
 class ShapePCA(PCA):
     """
-    Implements some additional properties and methods for doing principall components analysis on a sample of shapes
+    Implements some additional properties and methods for doing principal components analysis on a sample of shapes
     """
     def __init__(self):
         super().__init__()
