@@ -1,8 +1,0 @@
-python_shape_stats
-==================
-
-.. toctree::
-   :maxdepth: 5
-
-   python_shape_stats
-
