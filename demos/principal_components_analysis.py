@@ -8,6 +8,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import copy
+
 # load the simulated faces as a demo dataset
 face_path = helpers.get_path_to_simulated_faces() # get path to the relevant package data
 face_obj_paths = glob.glob(os.path.join(face_path,'*.obj'))
@@ -49,3 +50,6 @@ PCAMod.animate_pc([1,2,3,4], max_sd=3)
 # red = outward
 # blue = inward
 PCAMod.colormap_pc(pcs_to_plot)
+
+##
+
