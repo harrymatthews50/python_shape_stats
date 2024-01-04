@@ -1,7 +1,6 @@
 import copy
 import os
 import tkinter.filedialog
-
 import pandas as pd
 from scipy.stats import ortho_group
 import pyvista as pv
@@ -16,7 +15,7 @@ from joblib_progress import joblib_progress
 from tqdm import tqdm
 import pickle
 import PIL
-def get_camera_properies(cam):
+def get_camera_properties(cam):
     keys = [item for item in dir(cam) if item[0].islower()]
     out = dict()
     for key in keys:
@@ -46,7 +45,7 @@ def get_user_input_for_cam_view(mesh,link_views=True):
     for x in range(n_plots):
         r, c = np.unravel_index(x, [n_rows, n_cols])
         pl.subplot(r, c)
-        cam_views.append(get_camera_properies(pl.camera))
+        cam_views.append(get_camera_properties(pl.camera))
 
     return cam_views
 
@@ -191,6 +190,7 @@ def randomize_matrix(x,seed=None):
 def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',file_name='animation.gif',fps=10,cam_view=None,off_screen=True,link_views=True,title=None,same_coordinate_system=True):
     def _morph_shape():
         [item.VisibilityOff() for item in prompt_text]
+        [item.VisibilityOn() for item in title_text]
         if mode == 'write_gif':
             writing = True
             pl.open_gif(filename=file_name,fps = fps,loop=0)
@@ -209,6 +209,7 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
                 pl.write_frame()
         if writing:
             print('Written to '+os.path.abspath(file_name))
+        [item.VisibilityOff() for item in title_text]
         [item.VisibilityOn() for item in prompt_text]
         pl.update()
 
@@ -222,9 +223,13 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     if cam_view is not None:
         if not my_is_iterable(cam_view):
             cam_view = [cam_view]
+
+
     if mode == 'write_gif':
         ext = '.gif'
         file_name = os.path.splitext(file_name)[0] + ext
+    elif mode is not None:
+        raise ValueError('mode must be \'write gif\' or None')
 
     if off_screen:
         if cam_view is None:
@@ -251,21 +256,31 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     init_vertices = [item.points for item in base_polydata]
     # add each shape in a window
     prompt_text = []
+    title_text = []
     for x in range(n_meshes):
         if not same_coordinate_system:
             r,c = np.unravel_index(x,[n_rows,n_cols])
             pl.subplot(r,c)
-            pl.add_key_event('k', _morph_shape) # add key event ton each subplot
-        add_shape(base_polydata[x],pl)
-        prompt_text.append(pl.add_text('Press k to begin',color=[0,0,0]))
+           # pl.add_key_event('k', _morph_shape) # add key event to each subplot
+        if n_plots > 1:
+            prompt_text.append(pl.add_text('Press k to begin',color=[0,0,0]))
+            title_text.append(pl.add_text(title[x],color=[0,0,0],position='upper_edge'))
+        add_shape(base_polydata[x], pl)
+
         if cam_view is not None:
             if not same_coordinate_system:
                     set_camera_view(pl.camera, cam_view[x])
             else:
                     set_camera_view(pl.camera, cam_view[0])
 
-    if same_coordinate_system:
-        pl.add_key_event('k', _morph_shape)  # add key event once to the plotter
+    # set visible off
+    [item.VisibilityOff() for item in title_text]
+
+    if n_plots==1:
+        prompt_text.append(pl.add_text('Press k to begin', color=[0, 0, 0]))
+        title_text.append(pl.add_text(title[0], color=[0, 0, 0], position='upper_edge'))
+
+    pl.add_key_event('k', _morph_shape)  # add key event once to the plotter
 
     if link_views:
         pl.link_views()
@@ -275,19 +290,25 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     else:
         pl.show()
 
-def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=True,link_views=True,same_coordinate_system=True):
+def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=True,link_views=True,same_coordinate_system=True):
     def _print_to_file():
         [item.VisibilityOff() for item in prompt_text]
+        [item.VisibilityOn() for item in title_text]
         pl.update()
-        ext = os.path.splitext(file_name)
+        fn, ext = os.path.splitext(file_name)
+        if ext == '':
+            ext='.pdf'
+        file_name_ = fn+ext
+
         if ext in ['.svg','.eps','.ps','.pdf','.tex']:
-            pl.save_graphic(filename=file_name)
+            pl.save_graphic(filename=file_name_)
         else:
             # try saving a screenshot via pillow
             im = PIL.Image.fromarray(pl.image)
-            im.save(file_name)
-        print('Written to '+os.path.abspath(file_name))
+            im.save(file_name_)
+        print('Written to '+os.path.abspath(file_name_))
         [item.VisibilityOn() for item in prompt_text]
+        [item.VisibilityOff() for item in title_text]
         pl.update()
 
     if same_coordinate_system == True:
@@ -301,13 +322,19 @@ def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=No
         base_polydata = [base_polydata]
     if not my_is_iterable(point_scalars):
         point_scalars = [point_scalars]
-
     if (not my_is_iterable(cam_view)) & (cam_view is not None):
             cam_view = [cam_view]
     if (not my_is_iterable(cmap)) & (cmap is not None):
         cmap =[cmap]
     if (not my_is_iterable(clim)) & (clim is not None):
         clim = [clim]
+
+    if title is None:
+        title = ['']
+    if not my_is_iterable(title):
+        title = [title]
+
+
     if off_screen:
         if cam_view is None:
             cam_view = get_user_input_for_cam_view(base_polydata,link_views=link_views)
@@ -332,6 +359,8 @@ def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=No
     else:
         base_polydata = [base_polydata[i].copy(True) for i in range(n_meshes)]
 
+    if len(title) == 1:
+        title = title*n_plots
     # work out the colormaps and color limits should be depending on the settings
     if link_cmaps:
         if clim is not None:
@@ -359,23 +388,22 @@ def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=No
             clim = [_set_colormap(sc,None,None)[1] for sc in point_scalars]
 
 
-
     # check there are as many cmaps and clims as plots
     if (len(clim) != n_meshes) | (len(cmap) != n_meshes):
         raise ValueError('clim and cmap should have as many entries as there are meshes, or one entry if link_cmaps==True')
 
     # add each shape in a window
     prompt_text = []
+    title_text = []
     for x in range(n_meshes):
         if n_plots>1:
             r,c = np.unravel_index(x,[n_rows,n_cols])
             pl.subplot(r,c)
         add_shape(base_polydata[x],pl,scalars=point_scalars[x],clim=clim[x],cmap=cmap[x])
-        #For multiple plots, a bug in pyvista makes it not listen to 'clim' argument for second plots, so need to force it to update the climits
-        #pl.update_scalar_bar_range(clim[x])
 
         if n_plots>1:
-            add_scalar_bar(pl,title=str(x))
+            add_scalar_bar(pl,title=str(x)) # title must be specified (otherwise pyvista won't make separate colorbars), the title will not be visibly rendered
+            title_text.append(pl.add_text(title[x], color=[0, 0, 0], position='upper_edge'))
         pl.update_scalar_bar_range(clim[x])
         prompt_text.append(pl.add_text('Press k to save to file',color=[0,0,0]))
         if cam_view is not None:
@@ -385,8 +413,10 @@ def plot_colormaps(base_polydata,point_scalars,file_name ='colormap.pdf',clim=No
                     set_camera_view(pl.camera, cam_view[0])
     if n_plots==1:
         add_scalar_bar(pl)
-    pl.add_key_event('k',_print_to_file)
+        title_text.append(pl.add_text(title[0], color=[0, 0, 0], position='upper_edge'))
 
+    pl.add_key_event('k',_print_to_file)
+    [item.VisibilityOff() for item in title_text]
     if link_views:
         pl.link_views()
 
@@ -460,11 +490,11 @@ def add_scalar_bar(plotter,**kwargs):
     height = kwargs.pop('height',None)
     width = kwargs.pop('width',None)
     font_family = kwargs.pop('font_family','times')
-    label_font_size = kwargs.pop('label_font_size',25)
-    title_font_size = kwargs.pop('title_font_size',30)
+    label_font_size = kwargs.pop('label_font_size',15)
+    title_font_size = kwargs.pop('title_font_size',1) # make invisible
     if vertical:
         if position_x is None:
-            position_x = 0.85
+            position_x = 0.8
         if position_y is None:
             position_y = 0.1
         if height is None:
@@ -481,6 +511,10 @@ def add_scalar_bar(plotter,**kwargs):
             width = 1-position_x*2
         if height is None:
             height = 0.1
+
+    a = plotter.add_scalar_bar(color=color, font_family=font_family, label_font_size=label_font_size,
+                           title_font_size=title_font_size, vertical=vertical, position_x=position_x,
+                           position_y=position_y, width=width, height=height, **kwargs)
 
     return plotter.add_scalar_bar(color=color,font_family=font_family,label_font_size=label_font_size,title_font_size=title_font_size,vertical=vertical,position_x=position_x,position_y=position_y,width=width,height=height,**kwargs)
 
@@ -653,6 +687,18 @@ def load_shapes_to_array(paths: iter, n_jobs: int = 1) -> tuple:
         Warning('Was unable to stack all shapes into a single array, please check that they all have the same number of vertices...a list of separate arrays will be returned')
     return vertices,poly
 
+
+def ismember(A,B):
+    isIn = [item in B for item in A]
+    arB = np.array(B)
+    locB = []
+    for i in range(len(A)):
+        if isIn[i]:
+            locB.append(np.nonzero(arB==A[i])[0][0])
+        else:
+            locB.append(False)
+    return isIn, locB
+
 def _set_colormap(scalars,colormap,clim):
     if scalars is not None:
         if (colormap is None) | (clim is None):
@@ -674,8 +720,17 @@ def _set_colormap(scalars,colormap,clim):
                     clim = [0,extr]
         return colormap, clim
 
-
-
+def _vecs_to_scalars(vecs,direction = 'normal',poly=None):
+    if direction.lower() == 'normal':
+        if poly is None:
+            raise ValueError('A poly data with normals is required to calculate displacements along the surface normals')
+        normals = poly.point_normals
+        sc = [np.sum(v * normals, axis=1) for v in vecs]
+    elif direction.lower() == 'total':
+        sc = [np.linalg.norm(v, axis=1) for v in vecs]
+    else:
+        raise ValueError('Direction should be \'normal\' or \'total\'')
+    return sc
 class TriPolyData(pv.PolyData):
     """
     This class adds some extra functionality and convenience to the pyvista.PolyData
