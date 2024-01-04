@@ -5,8 +5,6 @@ import glob
 import os
 import numpy as np
 
-
-
 # load the nose and forehead datasets
 nose_path = helpers.get_path_to_simulated_noses() # get path to the relevant package data
 nose_obj_paths = glob.glob(os.path.join(nose_path,'*.obj'))
