@@ -12,9 +12,9 @@ def compute_procrustes_transform(p: np.ndarray, q: np.ndarray, scale: bool = Tru
     
     :param p: an n (landmarks) by 3 array of landmark coordinates
     :param q: an n (landmarks) by 3 array of landmark coordinates
-    :keyword scale: if True the scaling of p to q will be
+    :param scale: if True the scaling of p to q will be
             calculated. Otherwise, only rotation and translation will be calculated
-    :keyword w: if not None this should be a
+    :param w: if not None this should be a
             vector of length n (landmarks). This is a vector of weights, those
             landmarks with higher weights have more impact on the solution
     :return: a 4x4 transformation matrix
@@ -48,9 +48,7 @@ def compute_rotation(p: np.ndarray, q: np.ndarray, w: np.ndarray = None) -> np.n
 
     :param p: an n (landmarks) by 3 array of landmark coordinates
     :param q: an n (landmarks) by 3 array of landmark coordinates
-    :keyword w: f not None this should be a
-            vector of length n (landmarks). This is a vector of weights, those
-            landmarks with higher weights have more impact on the solution
+    :param w: if not None this should be a vector of length n (landmarks). This is a vector of weights, those landmarks with higher weights have more impact on the solution
     :return: a 4x4 transformation matrix, modelling only rotation
     """
     w = validate_landmark_configuration_and_weights(p, q=q, w=w)
@@ -80,8 +78,8 @@ def make_translation_matrix(origin=np.array([0, 0, 0]), destination=np.array([0,
     """
     Constructs a translation matrix for translating from the origin to the destination
 
-    :keyword origin: a vector of length 3 specifying the origin of the translation, defaults to [0,0,0]
-    :keyword destination: a vector of length 3 specifying the destination of the translation; defaults to [0,0,0]
+    :param origin: a vector of length 3 specifying the origin of the translation, defaults to [0,0,0]
+    :param destination: a vector of length 3 specifying the destination of the translation; defaults to [0,0,0]
     :return: a 4x4 transformation matrix modelling only the translation from origin to destination
     """
     v = destination - origin
@@ -95,9 +93,7 @@ def compute_centroid_size(p: np.ndarray, w: np.ndarray = None) -> float:
     Computes the (weighted) centroid size of the landmark configuration p
 
     :param p: an n (landmarks) by 3 array of landmark coordinates
-    :keyword w: if not None this should be a
-            vector of length n (landmarks). This is a vector of weights, those
-            landmarks with higher weights have more impact on the solution
+    :param w: if not None this should be a vector of length n (landmarks). This is a vector of weights, those landmarks with higher weights have more impact on the solution
     :return: the centroid size of the landmark configuration p
     """
     w = validate_landmark_configuration_and_weights(p, w=w)
@@ -111,7 +107,7 @@ def compute_rms_size(p: np.ndarray, w: np.ndarray = None) -> float:
     Computes the (weighted) root mean squared distance of the landmarks in configuration p from the centroid
 
     :param p: an n (landmarks) by 3 array of landmark coordinates
-    :keyword w: if not None this should be a vector of length n (landmarks). This is a vector of weights, those landmarks with higher weights have more impact on the solution
+    :param w: if not None this should be a vector of length n (landmarks). This is a vector of weights, those landmarks with higher weights have more impact on the solution
     :return: the rms size of the landmark configuration p
     """
     w = validate_landmark_configuration_and_weights(p, w=w)
@@ -125,9 +121,7 @@ def compute_centroid(p: np.ndarray, w: np.ndarray = None) -> np.ndarray:
     Computes the (weighted) centroid of the landmark configuration p
 
    :param p: an n (landmarks) by 3 array of landmark coordinates.
-   :param w: if not None this should be a
-            vector of length n (landmarks). This is a vector of weights, those
-            landmarks with higher weights have more impact on the solution.
+   :param w: if not None this should be a vector of length n (landmarks). This is a vector of weights, those landmarks with higher weights have more impact on the solution.
    :return: the centroid of the landmark configuration p.
    """
     w = validate_landmark_configuration_and_weights(p, w=w)
@@ -143,7 +137,7 @@ def scale_shape(p: np.ndarray, target_size: float = 1., size_type='centroid', w:
     :param w: if not None this should be a vector of length n (landmarks). This is a vector of weights, thoselandmarks with higher weights have more impact on the solution.
     :param target_size: the size to scale p to
     :param size_type: which definition of size to use, can be 'centroid' or 'rms'
-    :param: the landmark configuration p scaled to the target size
+    :param w: the landmark configuration p scaled to the target size
     """
     w = validate_landmark_configuration_and_weights(p, w=w)
     center_p = compute_centroid(p, w)
@@ -161,7 +155,7 @@ def apply_procrustes_transform(p: np.ndarray, t: np.ndarray, invert: bool = Fals
 
     :param p: an n (landmarks) by 3 array of landmark coordinates.
     :param t: a 4x4 transformation matrix
-    :keyword invert: if True the function will apply the inverse of the transformation in t
+    :param invert: if True the function will apply the inverse of the transformation in t
     :return: the landmark configuration p after applying the transformation
     """
 

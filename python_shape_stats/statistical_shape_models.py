@@ -476,8 +476,8 @@ class ShapePCA(PCA):
 
     def fit(self, x: np.ndarray, center: bool = True, center_config: np.ndarray = None):
         """Fits the PCA model to training data x - uses the singular value decomposition of (centered) x.
-        :
-        param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
+
+        :param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
         :param center: if True x will be centered along the third dimension by center_config x  prior to the SVD
         :param center_config: if None the 'center_config' defaults to np.mean(x,axis=2) and thus centers the landm,rks on their mean shapes
         """
@@ -496,10 +496,8 @@ class ShapePCA(PCA):
         Transforms the landmark configurations in x into the lower dimenisonal space of the PCA model.
 
         :param x: an l (vertices/landmarks) x 3 dimensions x k (observations) array of homologous shapes
-        :param apply_procrustes_transform: if True each observation in x will be aligned first to the mean shape using the
-        Procrustes transform. If false then the shapes must already be aligned to the mean shape before calling this function
-        :param procrustes_scale: if apply_procrustes_transform is True then this will determine if the configuratioons are
-        allowed to scale towards the mean shape
+        :param apply_procrustes_transform: if True each observation in x will be aligned first to the mean shape using the Procrustes transform. If false then the shapes must already be aligned to the mean shape before calling this function
+        :param procrustes_scale: if apply_procrustes_transform is True then this will determine if the configuratioons are allowed to scale towards the mean shape
         :param n_jobs: the number of jobs to run in parallel (see joblib.Parallel documentation)
         :return: a tuple containing 1. a k observations x self.ndims array of coordinates in the lower dimensional space, 2. a list of the procrustes transformations applied to each  configuration
         """
@@ -1206,8 +1204,7 @@ class PLS_2B(PLS):
         """
         Fits the two block PLS model to the data x and y
 
-        :param x: the x-block of variables. This can be an n (observations) by k features np.ndarray or pd.DataFrame. It can also be an instance of :py:class:`PCA` or one of its subclasses. If it is an np.ndarray this simply becomes the x block.
-        If it is a DataFrame, each column's dtype is checked if dtype=='category' these will be expanded to l-1 dummy variables, where l is the number of unique values in the column. If it is a :py:class:`PCA` (or a subclass thereof) the x block will be the PC scores :py:attr:`PCA.transformed_training_data`
+        :param x: the x-block of variables. This can be an n (observations) by k features np.ndarray or pd.DataFrame. It can also be an instance of :py:class:`PCA` or one of its subclasses. If it is an np.ndarray this simply becomes the x block. If it is a DataFrame, each column's dtype is checked if dtype=='category' these will be expanded to l-1 dummy variables, where l is the number of unique values in the column. If it is a :py:class:`PCA` (or a subclass thereof) the x block will be the PC scores :py:attr:`PCA.transformed_training_data`
         :param y: the y-block of variables. The same details apply as for 'x'
         :param center_x: boolean indicating whether to column mean center x
         :param center_y: boolean indicating whether to column mean center y
@@ -1361,24 +1358,37 @@ class ShapePLS_2B(PLS_2B):
             scalars = [np.linalg.norm(latent_vectors[i], axis=1) for i in range(len(pd))]
         return scalars
     # some methods specific for visualising paired latent dimensiona
-    def animate_latent_dim(self,dim,max_sd=3,n_frames=20,same_coordinate_system=False,**kwargs):
-        mode = kwargs.pop('mode', 'write_gif')
-        file_name = kwargs.pop('file_name', 'PLS_Dim' + str(dim)+'.gif')
-        off_screen = kwargs.pop('off_screen', False)
+    def animate_latent_dim(self,dim,max_sd=3,n_frames=20,**kwargs):
+        """
+        Animates the shape transformations of a single latent dimension.
 
+        :param dim: the latent dimension to visualise
+        :param max_sd: the animation will go between +/- max_sd of the scores of the latent dimension
+        :param n_frames: the number of frames for the animation
+        :param kwargs: see helpers.animate_vectors
+        :return:
+        """
+
+
+        file_name = kwargs.pop('file_name', 'PLS_Dim' + str(dim)+'.gif')
         # collect the average polydatas
         base_polydata = self._get_base_polydata()
         vectors = self._get_latent_vectors(dim)
         frame_scalars = self._get_frame_scalars(dim,max_sd=max_sd,n_frames=n_frames)
 
-        helpers.animate_vectors(base_polydata=base_polydata,point_vectors=vectors,frame_scalars=frame_scalars,mode=mode,file_name=file_name,off_screen=off_screen,same_coordinate_system=same_coordinate_system,**kwargs)
+        helpers.animate_vectors(base_polydata=base_polydata,point_vectors=vectors,frame_scalars=frame_scalars,**kwargs)
 
-    def colormap_latent_dim(self,dim,file_name=None,same_coordinate_system=False,direction='normal',off_screen=False,clim=None,cmap=None,link_views=False):
+    def colormap_latent_dim(self,dim,direction='normal',**kwargs):
+        """
+        :param dim: the latent dimension to visualise
+        :param direction: plots the shape transformtion along the surface normals (if set to 'normal') otherwise plots the total magnitude of the shape transformation per point (if set to 'total')
+        :param kwargs: see helpers.plot_colormaps
+        :return:
+        """
+        file_name = kwargs.pop('file_name','PLS_Dim' + str(dim) + '.pdf'  )
         pd = self._get_base_polydata()
         scalars = self._get_point_scalars(dim,direction)
-        if file_name is None:
-            file_name = 'PLS_Dim' + str(dim) + '.pdf'
-        helpers.plot_colormaps(pd,scalars,file_name=file_name,link_cmaps=True,same_coordinate_system=same_coordinate_system,off_screen=off_screen,clim=clim,cmap=cmap,link_views=link_views)
+        helpers.plot_colormaps(pd,scalars,file_name=file_name,**kwargs)
 
 
 class PLSHypothesisTest(PLS):

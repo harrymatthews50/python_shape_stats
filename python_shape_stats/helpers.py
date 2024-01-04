@@ -193,8 +193,7 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
 
     :param base_polydata: the polydata, or a list of n polydatas to animate
     :param point_vectors: a point vector (an n points x 3 dimensions) array,or a list of n point vectors, specifying the direction of the transformation at each point
-    :param frame_scalars: a vector of scalars, or a list of n vectors, determining how much the polydata is transformed for each frame.
-    for example the points of the polydata on the ith frame are equal to base_polydata.points+point_vector*frame_scalars[i]
+    :param frame_scalars: a vector of scalars, or a list of n vectors, determining how much the polydata is transformed for each frame. For example the points of the polydata on the ith frame are equal to base_polydata.points+point_vector*frame_scalars[i]
     :param mode: if 'write_gif' animation will be saved as a gif
     :param file_name: the file_name of the saved gif
     :param fps: the frame rate of the saved gif
