@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0","setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm] # pulls version number from github release during build
+
+[project]
+name = "python_shape_stats"
+authors = [
+  { name="Harold Matthews", email="harrymatthews50@gmail.com" },
+]
+description = "A python toolbox for statistical shape analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+  'pyvista >= 0.38',
+  'scipy>= 1.10',
+  'scikit-learn'>=1.2.1
+  'pandas'>=1.5
+  'matplotlib'>=3.7
+  'joblib'>=1.2
+  'joblib_progress'>=1.0
+  'tqdm'>=4.65
+  'tk'>=0.1
+  'pillow'>=0.9
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+[project.urls]
+"Homepage" = "https://github.com/harrymatthews50/python_shape_stats"
+
+
