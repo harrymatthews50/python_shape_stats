@@ -20,14 +20,14 @@ classifiers = [
 dependencies = [
   'pyvista >= 0.38',
   'scipy>= 1.10',
-  'scikit-learn'>=1.2.1,
-  'pandas'>=1.5,
-  'matplotlib'>=3.7,
-  'joblib'>=1.2,
-  'joblib_progress'>=1.0,
-  'tqdm'>=4.65,
-  'tk'>=0.1,
-  'pillow'>=0.9,
+  'scikit-learn>=1.2.1',
+  'pandas>=1.5',
+  'matplotlib>=3.7',
+  'joblib>=1.2',
+  'joblib_progress>=1.0',
+  'tqdm>=4.65',
+  'tk>=0.1',
+  'pillow>=0.9',
 ]
 
 [tool.setuptools]
