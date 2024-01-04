@@ -1,5 +1,4 @@
 import copy
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -475,7 +474,6 @@ class ShapePCA(PCA):
         else:
             raise ValueError('Reference polydata should be an instance of helpers.TriPolyData')
 
-
     def fit(self, x: np.ndarray, center: bool = True, center_config: np.ndarray = None):
         """Fits the PCA model to training data x - uses the singular value decomposition of (centered) x.
         :
@@ -531,29 +529,50 @@ class ShapePCA(PCA):
         self.fit(x, center=center, center_config=center_config)
         self._transformed_training_data, _ = self.transform(x, apply_procrustes_transform=False)
 
-    def animate_pc(self, pc_num : int, max_sd : float = 3, n_frames=20, **kwargs):
+    def animate_pc(self, pc_num : int, max_sd : float = 3, n_frames=20,mode='write_gif', **kwargs):
         """
         Makes an animation illustrating the shape change associated a specified PC
         :param pc_num: the PC to visualise
         :param max_sd: The shape will be morphed between -max_sd - max_sd standard deviations
         :param n_frames: the number of frames to render in the animation
+        :param mode: if 'write_gif' animation will be written to file, if NoneType it will not
         :param kwargs: keyword arguments that will be passed to helpers.animate_vectors, consult its documenation for details but note the following differences in default behaviour
                 by default calling animate_pc will render off screen and write the animation to a file 'PC_'+str(pc_num)+'.gif'
-                to change this behaviour set off_screen=False and file_name to the file_name of your choice
         """
 
         # for safety make clone
         kwargs = copy.deepcopy(kwargs)
-        vec = helpers.landmark_2d_to_3d(self.eig_vec[pc_num, :] * self.eig_std[pc_num])
+        if not helpers.my_is_iterable(pc_num):
+            pc_num= [pc_num]
+
+        vec = [helpers.landmark_2d_to_3d(self.eig_vec[i, :] * self.eig_std[i]) for i in pc_num]
         frame_scalars = helpers._generate_circular_sequence(max_sd, -max_sd, n_in_sequence=n_frames)
+        frame_scalars = [frame_scalars]*len(pc_num)
+        polydatas = [copy.deepcopy(self.average_polydata) for i in range(len(pc_num))]
 
         # set default values of some of the keyword arguments
-        file_name = kwargs.pop('file_name', 'PC_' + str(pc_num))
+        file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']','').replace(',', '_').replace(' ',''))
         off_screen = kwargs.pop('off_screen', False)
-
+        title = kwargs.pop('title',['PC '+str(i) for i in pc_num])
         # make animation
-        helpers.animate_vectors(self.average_polydata, vec, frame_scalars, mode=mode, file_name=file_name,
-                               off_screen=off_screen, **kwargs)
+        helpers.animate_vectors(polydatas, vec, frame_scalars, mode=mode, file_name=file_name,title=title,
+                               off_screen=off_screen,same_coordinate_system=False, **kwargs)
+    def colormap_pc(self,pc_num,**kwargs):
+        kwargs = copy.deepcopy(kwargs)
+        if not helpers.my_is_iterable(pc_num):
+            pc_num = [pc_num]
+
+        pd = self.average_polydata
+        vec = [helpers.landmark_2d_to_3d(self.eig_vec[i, :] * self.eig_std[i]) for i in pc_num]
+
+        file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']', '').replace(',', '_').replace(' ',''))
+        off_screen = kwargs.pop('off_screen', False)
+        title = kwargs.pop('title', ['PC ' + str(i) for i in pc_num])
+        direction = kwargs.pop('direction','normal')
+        same_coordinate_system = kwargs.pop('same_coordinate_system',False)
+        point_scalars = helpers._vecs_to_scalars(vec,direction=direction, poly=pd)
+
+        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, same_coordinate_system=same_coordinate_system, off_screen=off_screen, title = title, **kwargs)
 
 
 def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95.,
@@ -1193,7 +1212,7 @@ class PLS_2B(PLS):
         :param standardize_x: boolean indicating whether to standardize the columns of x to have unit variance
         :param standardize_y:boolean indicating whether to standardize the columns of y to have unit variance
         :param observation_weights: a vector of length n (observations)
-        :param observation_mask:
+        :param observation_mask: a boolean array of length n (observations)
         :return:
         """
 
@@ -1279,6 +1298,7 @@ class PLS_2B(PLS):
                                                          self.observation_weights[self.observation_mask], self.n_dim,
                                                          child_states[x])
                 for x in range(n_reps))
+
         self._permutation_null_distribution = np.vstack(args)
 
     def permutation_test_plot(self, p_crit=.05, ax=None, recompute_null_distribution=False, n_reps=1000, seed=None,
@@ -1288,7 +1308,7 @@ class PLS_2B(PLS):
         if (self._permutation_null_distribution is None) | recompute_null_distribution:
             self.compute_null_distributions(n_reps=n_reps, seed=seed, n_jobs=n_jobs)
 
-        _eigen_value_plot(self.cov_explained, eig_vals_label='Covariance Explained',
+        return _eigen_value_plot(self.cov_explained, eig_vals_label='Covariance Explained',
                           distr=self._permutation_null_distribution, distr_label='Null', ci_level=CIpct,
                           threshold_level=CIpct, ax=ax, xlabel='PLS Dim',
                           ylabel='Explained\nCovariance', title='')
@@ -1379,12 +1399,6 @@ class ShapePLS_2B(PLS_2B):
 #     elif method == 'genetic variance':
 #         return scipy.linalg.fractional_matrix_power(scipy.linalg.pinvh(x0.T @ x0), 0.5) @ x0.T @ y0
 #
-
-
-
-
-
-
 
 class PLSHypothesisTest(PLS):
     def __init__(self):
@@ -1529,7 +1543,7 @@ class PLSHypothesisTest(PLS):
             PLSMod = PLSRegression(n_components=n_comp,scale=False)
             PLSMod.fit(x0,y0)
             return PLSMod.coef_
-        return simpls(x0,y0,n_comp)
+
     @staticmethod
     def _fit_residualize(x0,y0,n_comp = None,method = 'simpls'):
         coefs = PLSHypothesisTest._fit(x0,y0,n_comp=n_comp,method = method)
@@ -1609,14 +1623,7 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
         if not helpers.my_is_iterable(x_vars):
             x_vars = [x_vars]
         vecs = self._get_regression_vectors(x_vars,reverse=reverse)
-        if direction.lower() == 'normal':
-            normals = self._y.average_polydata.point_normals
-            sc = [np.sum(v*normals,axis=1) for v in vecs]
-        elif direction.lower() == 'total':
-            sc = [np.linalg.norm(v,axis=1) for v in vecs]
-        else:
-            raise ValueError('Direction should be \'normal\' or \'total\'')
-        return sc
+        return helpers._vecs_to_scalars(vecs,direction=direction,poly=self._y.average_polydata)
 
     def _get_point_r_squared(self,x_vars):
         if not helpers.my_is_iterable(x_vars):
@@ -1636,13 +1643,37 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
             null_rsqu = self._null_r_squared[var][1]
             n_perms = null_rsqu.shape[1]
             p = np.sum((null_rsqu-r)>0,axis=1) / n_perms
+            out.append(p)
+        return out
 
-    def plot_coefficients(self,x_vars, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
+    def plot_coefficients(self,x_vars=None, title=None, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
         pd = self._y.average_polydata
         point_scalars = self._get_point_regression_coefs(direction=direction, x_vars=x_vars)
         if file_name is None:
-            file_name = 'regression_'+str(x_vars).replace('[','').replace(',','_')
-        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,clim=clim,off_screen=off_screen,cmap=cmap,link_views=link_views,link_cmaps=link_cmap,same_coordinate_system=False)
+            file_name = 'regression'#+str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
+        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,title=title,clim=clim,off_screen=off_screen,cmap=cmap,link_views=link_views,link_cmaps=link_cmap,same_coordinate_system=False)
+
+    def animate_coefficients(self, vars, max_sd : float = 3, n_frames : int =20,file_name : str =None,mode='write_gif', **kwargs):
+
+        kwargs = copy.deepcopy(kwargs)
+        if not helpers.my_is_iterable(vars):
+            vars = [vars]
+
+        # get the standard deviations
+        sds = [np.std(self.x_treated.iloc[:,self._find_var_in_x(vars[i],search_in_x_treated=True)]) for i in range(len(vars))]
+
+        vec = self._get_regression_vectors(vars)
+        frame_scalars = [helpers._generate_circular_sequence(max_sd*sds[i], -max_sd*sds[i], n_in_sequence=n_frames) for i in range(len(vars))]
+        polydatas = [copy.deepcopy(self._y.average_polydata) for i in range(len(vars))]
+
+        # set default values of some of the keyword arguments
+        if file_name is None:
+            file_name = 'regression'  # +str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
+        off_screen = kwargs.pop('off_screen', False)
+        title = kwargs.pop('title', [str(i) for i in vars])
+        # make animation
+        helpers.animate_vectors(polydatas, vec, frame_scalars, mode=mode, file_name=file_name, title=title,
+                                off_screen=off_screen, same_coordinate_system=False, **kwargs)
 
 
 
