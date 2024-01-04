@@ -532,16 +532,14 @@ class ShapePCA(PCA):
     def animate_pc(self, pc_num : int, max_sd : float = 3, n_frames=20,mode='write_gif', **kwargs):
         """
         Makes an animation illustrating the shape change associated a specified PC
+
         :param pc_num: the PC to visualise
         :param max_sd: The shape will be morphed between -max_sd - max_sd standard deviations
         :param n_frames: the number of frames to render in the animation
         :param mode: if 'write_gif' animation will be written to file, if NoneType it will not
-        :param kwargs: keyword arguments that will be passed to helpers.animate_vectors, consult its documenation for details but note the following differences in default behaviour
-                by default calling animate_pc will render off screen and write the animation to a file 'PC_'+str(pc_num)+'.gif'
+        :param kwargs: see helpers.animate_vectors
         """
 
-        # for safety make clone
-        kwargs = copy.deepcopy(kwargs)
         if not helpers.my_is_iterable(pc_num):
             pc_num= [pc_num]
 
@@ -552,27 +550,31 @@ class ShapePCA(PCA):
 
         # set default values of some of the keyword arguments
         file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']','').replace(',', '_').replace(' ',''))
-        off_screen = kwargs.pop('off_screen', False)
         title = kwargs.pop('title',['PC '+str(i) for i in pc_num])
         # make animation
         helpers.animate_vectors(polydatas, vec, frame_scalars, mode=mode, file_name=file_name,title=title,
                                off_screen=off_screen,same_coordinate_system=False, **kwargs)
     def colormap_pc(self,pc_num,**kwargs):
-        kwargs = copy.deepcopy(kwargs)
+        """
+        Make colormaps of the pcs in pc_num
+
+        :param pc_num: a single, or list of n pcs to plot
+        :param kwargs: see helpers.plot_colormaps
+
+        """
         if not helpers.my_is_iterable(pc_num):
             pc_num = [pc_num]
+
+        file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']', '').replace(',', '_').replace(' ',''))
+        title = kwargs.pop('title', ['PC ' + str(i) for i in pc_num])
+        direction = kwargs.pop('direction','normal')
 
         pd = self.average_polydata
         vec = [helpers.landmark_2d_to_3d(self.eig_vec[i, :] * self.eig_std[i]) for i in pc_num]
 
-        file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']', '').replace(',', '_').replace(' ',''))
-        off_screen = kwargs.pop('off_screen', False)
-        title = kwargs.pop('title', ['PC ' + str(i) for i in pc_num])
-        direction = kwargs.pop('direction','normal')
-        same_coordinate_system = kwargs.pop('same_coordinate_system',False)
         point_scalars = helpers._vecs_to_scalars(vec,direction=direction, poly=pd)
 
-        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, same_coordinate_system=same_coordinate_system, off_screen=off_screen, title = title, **kwargs)
+        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, title = title, **kwargs)
 
 
 def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95.,
@@ -1379,27 +1381,6 @@ class ShapePLS_2B(PLS_2B):
         helpers.plot_colormaps(pd,scalars,file_name=file_name,link_cmaps=True,same_coordinate_system=same_coordinate_system,off_screen=off_screen,clim=clim,cmap=cmap,link_views=link_views)
 
 
-#
-# def compute_cross_cov(x0,y0,method='cov',**kwargs):
-#     """
-#     Implements different cross covariance matrices of x and y
-#     Ref: Mitteroecker et al. (2016). Multivariate Analysis of Genotype–Phenotype Association
-#     :param x0:
-#     :param y0:
-#     :param method: can be 'pls' the generic cross covariance matrix (X'Y) used in pls algorithms or any of three alternatives
-#     decribed in Mitterocker et al. used in Genotype/Phenotype studies. These assume that the number
-#     :param: kwargs will go to scipy.linalg.pinvh
-#     :return: the requested matrix
-#     """
-#     raise_neg_frac_power = lambda x, pow : scipy.linalg.pinv(x)
-#     if method == 'covariance':
-#         return x0.T @ y0
-#     elif method == 'genetic effect':
-#         return scipy.linalg.pinvh(x0.T @ x0) @ x0.T @ y0
-#     elif method == 'genetic variance':
-#         return scipy.linalg.fractional_matrix_power(scipy.linalg.pinvh(x0.T @ x0), 0.5) @ x0.T @ y0
-#
-
 class PLSHypothesisTest(PLS):
     def __init__(self):
         super().__init__()
@@ -1601,8 +1582,6 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
             raise ValueError('y is expected to be an instance of the ShapePCA class')
         super(__class__, self.__class__).y.__set__(self, val)
 
-
-
     def _compute_rsquared(self,res,y0):
         ef_rsq = super()._compute_rsquared(res, y0)[0]
         # compute r squared per point
@@ -1646,18 +1625,63 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
             out.append(p)
         return out
 
-    def plot_coefficients(self,x_vars=None, title=None, file_name = None, direction = 'normal', off_screen = False, clim = None, cmap = None, link_views = True,link_cmap=False):
+    def plot_coefficients(self,x_vars=None,direction = 'normal', **kwargs):
+        """
+        Plot the regression coefficients as colormaps
+
+        :param x_vars: the names of the x variables plot
+        :param direction: either 'normal' or 'total' plotting the magnitude of the coefficients along the surface normals or their total magnitude
+        :param kwargs: see helpers.plot_colormaps
+        """
+        file_name = kwargs.pop('file_name','regression_coeffs')  # +str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
         pd = self._y.average_polydata
         point_scalars = self._get_point_regression_coefs(direction=direction, x_vars=x_vars)
-        if file_name is None:
-            file_name = 'regression'#+str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
-        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,title=title,clim=clim,off_screen=off_screen,cmap=cmap,link_views=link_views,link_cmaps=link_cmap,same_coordinate_system=False)
+        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,**kwargs)
+    def plot_r_squared(self,x_vars=None, **kwargs):
+        """
+        Plots the partial r-sqaured for the specified variables for each point
 
-    def animate_coefficients(self, vars, max_sd : float = 3, n_frames : int =20,file_name : str =None,mode='write_gif', **kwargs):
+        :param x_vars: the names of the x variables plot
+        :param kwargs: see helpers.plot_colormaps
+        """
+        file_name = kwargs.pop('file_name', 'regression_r_squared')
+        pd = self._y.average_polydata
+        point_scalars = self._get_point_r_squared(x_vars=x_vars)
+        helpers.plot_colormaps(pd,point_scalars,file_name=file_name,**kwargs)
 
-        kwargs = copy.deepcopy(kwargs)
+    def plot_p_values(self,x_vars=None,p_crit=0.05, **kwargs):
+        """
+        Plots the significance of of the effect at each point as a binary colormap
+
+        :param x_vars: the names of the x variables plot
+        :param p_crit: the significance threshold
+        :param kwargs: see helpers.plot_colormaps
+
+        """
+        file_name = kwargs.pop('file_name','regression_point_p_values')
+        cmap = kwargs.pop('cmap','summer')
+        clim = kwargs.pop('clim',[0,1])
+        plot_color_bar = kwargs.pop('plot_color_bar',False)
+
+        pd = self._y.average_polydata
+        point_scalars = [(item<p_crit).astype(float) for item in self._get_point_p_values(x_vars=x_vars)]
+        helpers.plot_colormaps(pd,point_scalars,file_name = file_name,cmap = cmap,clim=clim,plot_color_bar=plot_color_bar,**kwargs)
+
+    def animate_coefficients(self, vars, max_sd : float = 3, n_frames : int =20, **kwargs):
+        """
+        Visualise the regression coefficients as animations and save as a gif.
+
+        :param vars: the names of the x variables plot
+        :param max_sd: animate between the predicted shapes at +/- max_sd of standrad deviation of the predictor
+        :param n_frames: the number of frames for the animation
+        :param kwargs: see helpers.animate_vectors
+        :return:
+        """
         if not helpers.my_is_iterable(vars):
             vars = [vars]
+
+        file_name = kwargs.pop('file_name','regression')  # +str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
+        title = kwargs.pop('title', [str(i) for i in vars])
 
         # get the standard deviations
         sds = [np.std(self.x_treated.iloc[:,self._find_var_in_x(vars[i],search_in_x_treated=True)]) for i in range(len(vars))]
@@ -1665,15 +1689,10 @@ class ShapePLSHypothesisTest(PLSHypothesisTest):
         vec = self._get_regression_vectors(vars)
         frame_scalars = [helpers._generate_circular_sequence(max_sd*sds[i], -max_sd*sds[i], n_in_sequence=n_frames) for i in range(len(vars))]
         polydatas = [copy.deepcopy(self._y.average_polydata) for i in range(len(vars))]
-
         # set default values of some of the keyword arguments
-        if file_name is None:
-            file_name = 'regression'  # +str(x_vars).replace('[','').replace.(']','').replace(',','_').replace(' ','')
-        off_screen = kwargs.pop('off_screen', False)
-        title = kwargs.pop('title', [str(i) for i in vars])
-        # make animation
-        helpers.animate_vectors(polydatas, vec, frame_scalars, mode=mode, file_name=file_name, title=title,
-                                off_screen=off_screen, same_coordinate_system=False, **kwargs)
+             # make animation
+        helpers.animate_vectors(polydatas, vec, frame_scalars, file_name=file_name, title=title,
+                                 **kwargs)
 
 
 
