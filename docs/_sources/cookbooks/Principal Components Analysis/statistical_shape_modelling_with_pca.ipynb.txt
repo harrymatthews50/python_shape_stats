@@ -1,0 +1,297 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "source": [
+    "# Statistical Shape Modelling With Principal Components Analysis\n",
+    "\n",
+    "## Introduction to principal components analysis\n",
+    "Principal components analysis (PCA) is a versatile tool for describing multivariate data and data compression/dimension reduction. It has been widely used for decades in the analysis of shape variation and, when its basic assumptions are met, can still rival the state of the art in deep learning (see [here](https://doi.org/10.1111/ocr.12521) and [here]()).\n",
+    "\n",
+    "In this toolbox PCA is used primarily for dimension reduction prior to multivariate statistical analysis.\n",
+    "\n",
+    "Given some scattered data, PCA finds the directions along which there is the greatest variance:\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "outputs": [
+    {
+     "ename": "SyntaxError",
+     "evalue": "invalid syntax (3111010182.py, line 4)",
+     "output_type": "error",
+     "traceback": [
+      "\u001B[0;36m  Cell \u001B[0;32mIn[3], line 4\u001B[0;36m\u001B[0m\n\u001B[0;31m    from python_shape_stats.statistical_shape_models import PCA ShapePCA\u001B[0m\n\u001B[0m                                                                ^\u001B[0m\n\u001B[0;31mSyntaxError\u001B[0m\u001B[0;31m:\u001B[0m invalid syntax\n"
+     ]
+    }
+   ],
+   "source": [
+    "\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "from python_shape_stats.statistical_shape_models import PCA ShapePCA\n",
+    "from python_shape_stats import helpers\n",
+    "from python_shape_stats.procrustes import do_generalized_procrustes_analysis\n",
+    "import pathlib\n",
+    "import pyvista\n",
+    "\n",
+    "INTERACTIVE = False # if not running this code in a notebook or other IDE then leave this as false\n",
+    "if INTERACTIVE:\n",
+    "    pyvista.set_jupyter_backend('trame')\n",
+    "\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "mu = np.array([0,0,0])\n",
+    "cov = [[2.,.5,.7],\n",
+    "       [.5,.8,.3],\n",
+    "       [.7,.3,.9]]\n",
+    "x = np.random.multivariate_normal(mu,cov,400)\n",
+    "fig = plt.figure()\n",
+    "ax = fig.add_subplot(projection='3d')\n",
+    "\n",
+    "ax.scatter(x[:,0],x[:,1],x[:,2],c='g',s=1,alpha=1)\n",
+    "\n",
+    "# use the PCA\n",
+    "mod = PCA()\n",
+    "mod.fit_transform(x)\n",
+    "\n",
+    "for pc in range(2):\n",
+    "    direc=mod.eig_vec[pc,:]# direction as a unit vector\n",
+    "    scale = mod.eig_std[pc]\n",
+    "    p1 = direc*scale*3 + mod.center_vec\n",
+    "    p2 = direc*scale*-3 + mod.center_vec\n",
+    "    xs,ys,zs=zip(*[p1,p2])\n",
+    "    ax.plot(xs,ys,zs)\n",
+    "\n",
+    "ax.set_xlabel('Feature 1')\n",
+    "ax.set_ylabel('Feature 2')\n",
+    "ax.set_zlabel('Feature 3')\n",
+    "ax.axis('equal')\n",
+    "#ax.azim=50\n",
+    "\n",
+    "plt.show()"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "Above PCA finds the direction with the greatest variance (the blue line) and the direction with the greatest variance orthogonal to that (the orange line) which is represented as a unit vector. In this implementation these are kept in the attribute 'eig_vec' of the PCA class as these are equivalent to the eigenvalues of the sample covariance matrix. You may see these described in other places as 'components' (i.e. principal components) or 'loadings' as they specify how much each feature 'loads' on (is associated with) the vector/component.\n",
+    "\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "### PCA for describing a dataset\n",
+    "In general PCs describe patterns of covariation in the data."
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "print(mod.eig_vec[0,:])"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "In this case the first principal component loads relatively strongly on Feature 1, and less so on Features 2 and 3. All elements of the vector are the same sign (positive) indicating that a increase or decrease in the value of the first feature in the first feature is associated with a smaller corresponding increase or decrease in the second and third feature."
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "outputs": [
+    {
+     "ename": "NameError",
+     "evalue": "name 'mod' is not defined",
+     "output_type": "error",
+     "traceback": [
+      "\u001B[0;31m---------------------------------------------------------------------------\u001B[0m",
+      "\u001B[0;31mNameError\u001B[0m                                 Traceback (most recent call last)",
+      "Cell \u001B[0;32mIn[4], line 1\u001B[0m\n\u001B[0;32m----> 1\u001B[0m \u001B[38;5;28mprint\u001B[39m(\u001B[43mmod\u001B[49m\u001B[38;5;241m.\u001B[39meig_vec[\u001B[38;5;241m1\u001B[39m,:])\n",
+      "\u001B[0;31mNameError\u001B[0m: name 'mod' is not defined"
+     ]
+    }
+   ],
+   "source": [
+    "print(mod.eig_vec[1,:])"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "The second principal component loads positively on the first feature, and negatively on the second and third. This indicates that an increase in the first feature is accompanied by a decrease in the second and third and vice versa.\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "PCs are mutually orthogonal. When we have three or fewer features this can be seen when plotted as above. When we have more features it can't be plotted, but this property can always be shown by calculating the cosine of the angle between the two vectors, regardless of the number of features.\n",
+    "\n",
+    "E.g. between two PCs we can see that their dot product is effectively zero, accountong for floating point precision."
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "print(np.dot(mod.eig_vec[0,:],mod.eig_vec[1,:]))"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "markdown",
+   "source": [
+    "Or, using matrix multiplication we can calculate the dot product of all pairs of PCs and see that all off-diagonal entries of the result are super-close to zero."
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "print(mod.eig_vec @ mod.eig_vec.T)"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "path = helpers._get_path_to_simulated_population()\n",
+    "obj_paths = [item for item in pathlib.Path(path).glob('*.obj')]\n",
+    "r = helpers.load_shapes_to_array(obj_paths, n_jobs=1,verbose=0)\n",
+    "ref_polydata,ref_vertices,_ = helpers.load_shape(obj_paths[0])\n",
+    "r = do_generalized_procrustes_analysis(r,scale=True,init_landmarks=ref_vertices,max_iter=100,verbose=0)\n",
+    "\n",
+    "\n",
+    "\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [
+    "\n",
+    "if JUPYTER_NOTEBOOK: # plot an interactive window\n",
+    "    helpers.plot_shape(ref_polydata)\n",
+    "else:\n",
+    "    pl = pyvista.Plotter(off_screen=True)\n",
+    "    pl.add_mesh(ref_polydata)\n",
+    "    pl.show(screenshot='ref.png',jupyter_backend='none')\n",
+    "    plt.imshow(pl.image)\n"
+   ],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [],
+   "metadata": {
+    "collapsed": false
+   }
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "outputs": [],
+   "source": [],
+   "metadata": {
+    "collapsed": false
+   }
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 2
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython2",
+   "version": "2.7.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}
