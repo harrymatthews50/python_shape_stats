@@ -186,8 +186,25 @@ def randomize_matrix(x,seed=None):
         x[:,c] = rng.permutation(x[:,c])
     return x
 
+# TODO: Refactorise animate_vectors and plot_colormaps
+def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',file_name='animation.gif',fps=10,cam_view=None,off_screen=False,link_views=True,title=None,same_coordinate_system=False):
+    """
+    Animates shape transformations and optionally saves the results as a .gif.
 
-def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',file_name='animation.gif',fps=10,cam_view=None,off_screen=True,link_views=True,title=None,same_coordinate_system=True):
+    :param base_polydata: the polydata, or a list of n polydatas to animate
+    :param point_vectors: a point vector (an n points x 3 dimensions) array,or a list of n point vectors, specifying the direction of the transformation at each point
+    :param frame_scalars: a vector of scalars, or a list of n vectors, determining how much the polydata is transformed for each frame.
+    for example the points of the polydata on the ith frame are equal to base_polydata.points+point_vector*frame_scalars[i]
+    :param mode: if 'write_gif' animation will be saved as a gif
+    :param file_name: the file_name of the saved gif
+    :param fps: the frame rate of the saved gif
+    :param cam_view: this functionality is to be implemented more fully in future
+    :param off_screen: this functionality is to be implemented mor fully in future
+    :param link_views: if True, if multiple vectors are visualised this links there views so they are always viewed from the same angle
+    :param title: a single title, or a list of n titles for each animated vectors
+    :param same_coordinate_system: if True mutliple (n) polydata and (n) vectors are viewed in the same viewer.
+
+    """
     def _morph_shape():
         [item.VisibilityOff() for item in prompt_text]
         [item.VisibilityOn() for item in title_text]
@@ -229,6 +246,7 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
         file_name = os.path.splitext(file_name)[0] + ext
     elif mode is not None:
         raise ValueError('mode must be \'write gif\' or None')
+
 
     if off_screen:
         if cam_view is None:
@@ -288,7 +306,24 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
     else:
         pl.show()
 
-def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=True,link_views=True,same_coordinate_system=True):
+def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.pdf',clim=None,cmap=None,link_cmaps=False,cam_view=None,off_screen=False,link_views=True,plot_color_bar=True,same_coordinate_system=False):
+    """
+    Plot colormaps on polydatas either in a single window, or if multiple colormaps are plotted, in a grid of windows
+
+    :param base_polydata: a single polydata, or list of n polydatas, onto which to plot the colormaps
+    :param point_scalars: a single vector, or list of n vectors, of scalars for the colormaps
+    :param title: a title, or list of n titles, for the plots
+    :param file_name: the file name of the location where the colormap(s) should be saved
+    :param clim: a single clim (vector or list of min and max values of the colour scale), or a list of n clims, specifying
+            the limits of the plotted colormaps.
+    :param cmap: a single colormap or a list of n colormaps top use
+    :param link_cmaps: if True the same colormap and scale will be applied to all plots. If more than clim or cmap are given as arguments, an error is raised
+    :param cam_view: this functionality is to be implemented more fully in future
+    :param off_screen: this functionality is to be implemented more fully in future
+    :param link_views: if multiple color maps are plotted, link the camera view across the plotting windows (so all colormaps are imaged from the same direction)
+    :param plot_color_bar: if True (default) a color bar is plotted for each colormap
+    :param same_coordinate_system: if True multiple colormaps will be plotted in a single window, otherwise they will be plotted in a grid of separate windows.
+    """
     def _print_to_file():
         [item.VisibilityOff() for item in prompt_text]
         [item.VisibilityOn() for item in title_text]
@@ -315,7 +350,6 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
                     'with different colormaps and limits (link_cmaps==False) will result in a misleading figure and'
                     'and is not recommended')
 
-
     if not my_is_iterable(base_polydata):
         base_polydata = [base_polydata]
     if not my_is_iterable(point_scalars):
@@ -324,8 +358,10 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
             cam_view = [cam_view]
     if (not my_is_iterable(cmap)) & (cmap is not None):
         cmap =[cmap]
-    if (not my_is_iterable(clim)) & (clim is not None):
-        clim = [clim]
+    # custom check for clim, if more than one clim is given it will be a list of lists, otherwise not
+    if clim is not None:
+        if not my_is_iterable(clim[0]):
+            clim = [clim]
 
     if title is None:
         title = ['']
@@ -358,6 +394,7 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
     if len(title) == 1:
         title = title*n_plots
     # work out the colormaps and color limits should be depending on the settings
+    # TODO: refactorise determining colormaps and climits
     if link_cmaps:
         if clim is not None:
             if len(clim)>1:
@@ -380,9 +417,12 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
     else: # estimate them separately if not specified
         if cmap is None:
             cmap=[_set_colormap(sc,None,None)[0] for sc in point_scalars]
+        if len(cmap)==1: # assume linked if only one cmap is specified
+            cmap = cmap * n_meshes
         if clim is None:
             clim = [_set_colormap(sc,None,None)[1] for sc in point_scalars]
-
+        if len(clim)==1: # assume linked if only one cmap is specified
+            clim = clim * n_meshes
 
     # check there are as many cmaps and clims as plots
     if (len(clim) != n_meshes) | (len(cmap) != n_meshes):
@@ -398,7 +438,8 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
         add_shape(base_polydata[x],pl,scalars=point_scalars[x],clim=clim[x],cmap=cmap[x])
 
         if n_plots>1:
-            add_scalar_bar(pl,title=str(x)) # title must be specified (otherwise pyvista won't make separate colorbars), the title will not be visibly rendered
+            if plot_color_bar:
+                add_scalar_bar(pl,title=str(x)) # title must be specified (otherwise pyvista won't make separate colorbars), the title will not be visibly rendered
             title_text.append(pl.add_text(title[x], color=[0, 0, 0], position='upper_edge'))
         pl.update_scalar_bar_range(clim[x])
         prompt_text.append(pl.add_text('Press k to save to file',color=[0,0,0]))
@@ -408,7 +449,8 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
             else:
                     set_camera_view(pl.camera, cam_view[0])
     if n_plots==1:
-        add_scalar_bar(pl)
+        if plot_color_bar:
+            add_scalar_bar(pl)
         title_text.append(pl.add_text(title[0], color=[0, 0, 0], position='upper_edge'))
 
     pl.add_key_event('k',_print_to_file)
@@ -791,7 +833,7 @@ class TriPolyData(pv.PolyData):
             writerobj.writerows(np.concatenate((verts, faces), axis=0))
 
 def my_is_iterable(obj):
-    """Custom check for iterability of objects, but ignriung some types"""
+    """Custom check for iterability of objects, but ignoriung some types"""
     try: # if no iteration is possible return False
         iter(obj)
     except:
