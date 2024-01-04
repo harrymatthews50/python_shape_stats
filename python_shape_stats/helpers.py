@@ -213,7 +213,6 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
         [item.VisibilityOn() for item in prompt_text]
         pl.update()
 
-
     if not my_is_iterable(base_polydata):
         base_polydata = [base_polydata]
     if not my_is_iterable(point_vectors):
@@ -243,10 +242,9 @@ def animate_vectors(base_polydata,point_vectors,frame_scalars,mode='write_gif',f
         n_plots = 1
     if title is None:
         title = ['']*n_plots
-    nearest_sq =np.ceil(np.sqrt(n_plots))
-    n_cols=int(nearest_sq)
-    n_rows=int(np.ceil(n_plots /n_cols))
+
     if n_plots>1:
+        n_rows, n_cols = _determine_multiplot_layout(n_plots)
         pl = make_plotter(off_screen=off_screen,shape=(n_rows,n_cols))
     else:
         pl = make_plotter(off_screen=off_screen)
@@ -346,9 +344,7 @@ def plot_colormaps(base_polydata,point_scalars,title=None,file_name ='colormap.p
         n_plots = 1
 
     if n_plots>1:
-        nearest_sq = np.ceil(np.sqrt(n_plots))
-        n_cols = int(nearest_sq)
-        n_rows = int(np.ceil(n_plots / n_cols))
+        n_rows, n_cols = _determine_multiplot_layout(n_plots)
         pl = make_plotter(off_screen=off_screen,shape=(n_rows,n_cols))
     else:
         pl = make_plotter(off_screen=off_screen)
@@ -431,6 +427,14 @@ def make_plotter(background_color =[255,255,255] ,**kwargs):
     pl.background_color = background_color
     pl.enable_parallel_projection()
     return pl
+
+def _determine_multiplot_layout(n_plots):
+    nearest_sq = np.ceil(np.sqrt(n_plots))
+    n_cols = int(nearest_sq)
+    n_rows = int(np.ceil(n_plots / n_cols))
+    return n_rows, n_cols
+
+
 
 def add_vectors(mesh,vectors : np.ndarray | str =None,vectors_name=None,plotter=None,color_by_length=True,clim=None,cmap=None,**kwargs):
     if not isinstance(vectors,str): # then add the vectors to the polydata
