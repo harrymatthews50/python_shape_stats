@@ -8,11 +8,9 @@ Welcome to python_shape_stats's documentation!
 
 .. toctree::
    :maxdepth: 3
-   :caption: Contents:
-   
-   usage/installation
+   :caption: Contents:  
    modules
-   usage/examples/examples
+ 
    
 
 
