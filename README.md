@@ -1,5 +1,6 @@
 # python_shape_stats
 A Python toolbox for statistical shape analysis of dense surface meshes. 
+I have given several demo scripts for specific use cases. Feel free to make a [feature requests](https://www.prestashop-project.org/get-involved/request-features/#:~:text=To%20create%20a%20feature%20request,Or%20just%20click%20here.&text=Now%20fill%20out%20the%20form,issues%20with%20its%20flavoured%20Markdown.) or suggest new demos. Consider contributing your own as a pull request. 
 
 ## Overview
 With this toolbox you can:
@@ -47,9 +48,10 @@ conda install pip
 pip install python_shape_stats
 ```
 ### Run a demo script to see if everything runs
-Try to run one of the demo scripts
+Try to run one of the demo scripts in the 'demos' folder that will have downloaded when you cloned the repository. In the first instance try to run them directly from the terminal or Anaconda prompt (on Windows), with the shape_stats environment active. Close any plotting windows that open and see if the script runs to the end without errors.
+Note that you will need to change <path> to wherever you have cloned the repo to. 
 
 ```
 conda activate shape_stats
-
+python <path>/demos/2B_PLS.py
 ``` 
