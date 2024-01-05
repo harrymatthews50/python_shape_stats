@@ -550,8 +550,7 @@ class ShapePCA(PCA):
         file_name = kwargs.pop('file_name', 'PC_' + str(pc_num).replace('[', '').replace(']','').replace(',', '_').replace(' ',''))
         title = kwargs.pop('title',['PC '+str(i) for i in pc_num])
         # make animation
-        helpers.animate_vectors(polydatas, vec, frame_scalars, mode=mode, file_name=file_name,title=title,
-                               off_screen=off_screen,same_coordinate_system=False, **kwargs)
+        helpers.animate_vectors(polydatas, vec, frame_scalars, file_name=file_name,title=title, **kwargs)
     def colormap_pc(self,pc_num,**kwargs):
         """
         Make colormaps of the pcs in pc_num
@@ -572,7 +571,7 @@ class ShapePCA(PCA):
 
         point_scalars = helpers._vecs_to_scalars(vec,direction=direction, poly=pd)
 
-        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, title = title, **kwargs)
+        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, title = title,direction=direction, **kwargs)
 
 
 def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95.,
