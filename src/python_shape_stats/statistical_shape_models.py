@@ -571,7 +571,7 @@ class ShapePCA(PCA):
 
         point_scalars = helpers._vecs_to_scalars(vec,direction=direction, poly=pd)
 
-        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, title = title,direction=direction, **kwargs)
+        helpers.plot_colormaps(pd, point_scalars, file_name=file_name, title = title, **kwargs)
 
 
 def _eigen_value_plot(eig_vals, eig_vals_label='Eigenvalue Spectrum', distr=None, distr_label='', ci_level=95.,
