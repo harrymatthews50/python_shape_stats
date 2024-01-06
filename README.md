@@ -1,6 +1,6 @@
 # python_shape_stats
 A Python toolbox for statistical shape analysis of dense surface meshes. 
-I have given several demo scripts for specific use cases. Feel free to make a [feature requests](https://www.prestashop-project.org/get-involved/request-features/#:~:text=To%20create%20a%20feature%20request,Or%20just%20click%20here.&text=Now%20fill%20out%20the%20form,issues%20with%20its%20flavoured%20Markdown.) or suggest new demos. Consider contributing your own as a pull request. 
+I have given several demo scripts for specific use cases. Feel free to make [feature requests](https://www.prestashop-project.org/get-involved/request-features/#:~:text=To%20create%20a%20feature%20request,Or%20just%20click%20here.&text=Now%20fill%20out%20the%20form,issues%20with%20its%20flavoured%20Markdown.) or suggest new demos. Consider contributing as a pull request. 
 
 ## Overview
 With this toolbox you can:
