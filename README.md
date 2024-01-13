@@ -13,11 +13,10 @@ See demo of [two-block partial least-squares](./demos/2B_PLS.py).
 
 <img src="./img/PLS_Dim1.gif" width="40%"> <img src="./img/PLS_Dim1.png" width="40%"> 
 
-### Test hypotheses about the effect of variables on shapes
+### Statistical hypothesis testing
  See demo of hypothesis testing using [partial least-squares regression model](./demos/pls_hypothesis_test.py), as first developed [in this paper](https://doi.org/10.1016/j.forsciint.2013.10.021).
  
- <img src="./img/regression_coeffs.png" width="40%">
- <img src="./img/regression.gif" width="40%">
+ <img src="./img/regression_coeffs.png" width="40%"><img src="./img/regression.gif" width="40%">
 
 ## Documentation
 You can find the (evolving) project documentation on the [project website](https://harrymatthews50.github.io/python_shape_stats).
